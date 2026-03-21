@@ -19,15 +19,54 @@
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QMutex>
 #include <QMessageBox>
 #include <QStyle>
 #include <QTextStream>
 #include <QVBoxLayout>
 
+// WARNING: QT_TO_UTF8 returns a pointer to a temporary QByteArray.
+// Only safe when used immediately (e.g., passed directly to a function).
+// Never store the returned pointer for later use.
 #define QT_TO_UTF8(str) str.toUtf8().constData()
 
 extern void AddChapterMarkerHotkey(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
-QString currentChapterName;
+extern QString currentChapterName;
+extern QMutex currentChapterNameMutex;
+
+static void DockFrontendEventCallback(obs_frontend_event event, void *ptr);
+
+// Helper to detect NTSC drop-frame rates (29.97, 59.94)
+static bool isNTSCDropFrame()
+{
+	obs_video_info ovi;
+	if (obs_get_video_info(&ovi) && ovi.fps_den > 0) {
+		double actualFps = static_cast<double>(ovi.fps_num) / ovi.fps_den;
+		return (fabs(actualFps - 29.97) < 0.01) || (fabs(actualFps - 59.94) < 0.01);
+	}
+	return false;
+}
+
+// Helper to append chapter source info to a chapter name if enabled
+static QString appendChapterSource(const QString &chapterName, const QString &chapterSource, bool enabled)
+{
+	if (enabled && !chapterName.endsWith(" (" + chapterSource + ")")) {
+		return chapterName + " (" + chapterSource + ")";
+	}
+	return chapterName;
+}
+
+// Helper to escape XML special characters in strings written to FCPXML/Premiere XML
+static QString escapeXml(const QString &str)
+{
+	QString escaped = str;
+	escaped.replace("&", "&amp;");
+	escaped.replace("<", "&lt;");
+	escaped.replace(">", "&gt;");
+	escaped.replace("\"", "&quot;");
+	escaped.replace("'", "&apos;");
+	return escaped;
+}
 
 //--------------------CONSTRUCTOR & DESTRUCTOR--------------------
 ChapterMarkerDock::ChapterMarkerDock(QWidget *parent)
@@ -52,6 +91,7 @@ ChapterMarkerDock::ChapterMarkerDock(QWidget *parent)
 	  fullChapterHistoryEnabled(false),
 	  addChapterSourceEnabled(false),
 	  chapterCount(Constants::DEFAULT_CHAPTER_COUNT),
+	  useIncrementalChapterNames(false),
 	  settingsDialog(nullptr),
 	  isFirstRunInRecording(true),
 	  recordingStartFrameCount(0),
@@ -109,16 +149,17 @@ ChapterMarkerDock::ChapterMarkerDock(QWidget *parent)
 
 ChapterMarkerDock::~ChapterMarkerDock()
 {
+	// Remove the OBS frontend event callback registered in setupOBSCallbacks
+	obs_frontend_remove_event_callback(DockFrontendEventCallback, this);
+
 	for (const auto &chapterName : chapterHotkeys.keys()) {
 		unregisterChapterHotkey(chapterName);
 	}
 
-	if (settingsDialog) {
-		delete settingsDialog;
-	}
-	if (ignoredScenesDialog) {
-		delete ignoredScenesDialog;
-	}
+	// Qt parent-child relationship handles deletion of settingsDialog and
+	// ignoredScenesDialog since they are parented to this widget.
+	settingsDialog = nullptr;
+	ignoredScenesDialog = nullptr;
 }
 
 //--------------------SIGNAL CONNECTIONS--------------------
@@ -150,18 +191,22 @@ void ChapterMarkerDock::setupConnections()
 	connect(&feedbackTimer, &QTimer::timeout, [this]() { feedbackLabel->setText(""); });
 }
 
+// TODO: OBS does not currently emit a frontend event when a recording file is split.
+// When split recording support is added upstream, handle it here to reset export file
+// paths and timestamps so chapters align with the new file.
+static void DockFrontendEventCallback(obs_frontend_event event, void *ptr)
+{
+	auto dock = static_cast<ChapterMarkerDock *>(ptr);
+	if (event == OBS_FRONTEND_EVENT_SCENE_CHANGED || event == OBS_FRONTEND_EVENT_SCENE_LIST_CHANGED) {
+		dock->onSceneChanged();
+	} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
+		dock->onRecordingStopped();
+	}
+}
+
 void ChapterMarkerDock::setupOBSCallbacks()
 {
-	obs_frontend_add_event_callback(
-		[](obs_frontend_event event, void *ptr) {
-			auto dock = static_cast<ChapterMarkerDock *>(ptr);
-			if (event == OBS_FRONTEND_EVENT_SCENE_CHANGED || event == OBS_FRONTEND_EVENT_SCENE_LIST_CHANGED) {
-				dock->onSceneChanged();
-			} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
-				dock->onRecordingStopped();
-			}
-		},
-		this);
+	obs_frontend_add_event_callback(DockFrontendEventCallback, this);
 }
 
 //--------------------MAIN DOCK UI--------------------
@@ -347,7 +392,14 @@ void ChapterMarkerDock::onRecordingStopped()
 	showFeedbackMessage(obs_module_text("RecordingFinished"), false);
 
 	QString timestamp = getCurrentRecordingTime();
-	writeChapterToTextFile(obs_module_text("End"), timestamp, obs_module_text("Recording"));
+	QString endText = obs_module_text("End");
+	QString recordingText = obs_module_text("Recording");
+
+	// Write "End" marker to all enabled export formats
+	writeChapterToTextFile(endText, timestamp, recordingText);
+	writeChapterToFCPXMLFile(endText, timestamp, recordingText);
+	writeChapterToPremiereXMLFile(endText, timestamp, recordingText);
+	writeChapterToEDLFile(endText, timestamp, recordingText);
 
 	// Close XML files with proper closing tags
 	closeFCPXMLFile();
@@ -1032,17 +1084,16 @@ void ChapterMarkerDock::createExportFiles()
 		QFile fcpXmlFile(fcpXmlFilePath);
 		if (fcpXmlFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
 			QTextStream out(&fcpXmlFile);
-			// Get frame rate
-			obs_video_info ovi;
-			int fps = 30;
-			if (obs_get_video_info(&ovi)) {
-				fps = static_cast<int>(round(static_cast<double>(ovi.fps_num) / ovi.fps_den));
-			}
+			int fps = getFrameRate();
+
+			// Build file:// URL for FCP7 compatibility
+			QString fileUrl = "file://localhost/" + QDir::fromNativeSeparators(outputPath);
 
 			out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
 			out << "<!DOCTYPE xmeml>\n";
 			out << "<xmeml version=\"5\">\n";
 			out << "  <clip>\n";
+			out << "    <name>" << escapeXml(baseName) << "</name>\n";
 			out << "    <rate>\n";
 			out << "      <timebase>" << fps << "</timebase>\n";
 			out << "    </rate>\n";
@@ -1050,12 +1101,15 @@ void ChapterMarkerDock::createExportFiles()
 			out << "      <video>\n";
 			out << "        <track>\n";
 			out << "          <clipitem>\n";
+			out << "            <name>" << escapeXml(baseName) << "</name>\n";
 			out << "            <file id=\"file1\">\n";
-			out << "              <pathurl>" << baseName << "</pathurl>\n";
+			out << "              <name>" << escapeXml(baseName) << "</name>\n";
+			out << "              <pathurl>" << escapeXml(fileUrl) << "</pathurl>\n";
 			out << "              <media>\n";
 			out << "                <video/>\n";
 			out << "              </media>\n";
 			out << "            </file>\n";
+			// Markers will be appended here before closing tags
 			fcpXmlFile.close();
 			blog(LOG_INFO, "[StreamUP Record Chapter Manager] Created FCP XML chapter file: %s", QT_TO_UTF8(fcpXmlFilePath));
 			setExportFCPXMLFilePath(fcpXmlFilePath);
@@ -1070,22 +1124,14 @@ void ChapterMarkerDock::createExportFiles()
 		QFile premiereXmlFile(premiereXmlFilePath);
 		if (premiereXmlFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
 			QTextStream out(&premiereXmlFile);
-			// Get frame rate
-			obs_video_info ovi;
-			int fps = 30;
-			bool isNtsc = false;
-			if (obs_get_video_info(&ovi)) {
-				fps = static_cast<int>(round(static_cast<double>(ovi.fps_num) / ovi.fps_den));
-				// Check if it's NTSC (29.97 or 59.94)
-				double actualFps = static_cast<double>(ovi.fps_num) / ovi.fps_den;
-				isNtsc = (fabs(actualFps - 29.97) < 0.01) || (fabs(actualFps - 59.94) < 0.01);
-			}
+			int fps = getFrameRate();
+			bool isNtsc = isNTSCDropFrame();
 
 			out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
 			out << "<!DOCTYPE xmeml>\n";
 			out << "<xmeml version=\"4\">\n";
 			out << "\t<sequence id=\"sequence-1\">\n";
-			out << "\t\t<name>" << baseName << "</name>\n";
+			out << "\t\t<name>" << escapeXml(baseName) << "</name>\n";
 			out << "\t\t<rate>\n";
 			out << "\t\t\t<timebase>" << fps << "</timebase>\n";
 			out << "\t\t\t<ntsc>" << (isNtsc ? "TRUE" : "FALSE") << "</ntsc>\n";
@@ -1121,8 +1167,9 @@ void ChapterMarkerDock::createExportFiles()
 		QFile edlFile(edlFilePath);
 		if (edlFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
 			QTextStream out(&edlFile);
+			bool isDropFrame = isNTSCDropFrame();
 			out << "TITLE: " << baseName << "\n";
-			out << "FCM: NON-DROP FRAME\n\n";
+			out << "FCM: " << (isDropFrame ? "DROP FRAME" : "NON-DROP FRAME") << "\n\n";
 			edlFile.close();
 			blog(LOG_INFO, "[StreamUP Record Chapter Manager] Created EDL chapter file: %s", QT_TO_UTF8(edlFilePath));
 			setExportEDLFilePath(edlFilePath);
@@ -1150,12 +1197,7 @@ void ChapterMarkerDock::writeChapterToTextFile(const QString &chapterName, const
 		return;
 	}
 
-	QString fullChapterName = chapterName;
-
-	// Ensure the chapter source is only appended once
-	if (addChapterSourceEnabled && !chapterName.contains(chapterSource)) {
-		fullChapterName += " (" + chapterSource + ")";
-	}
+	QString fullChapterName = appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
 
 	QString content = QString("%1 - %2\n").arg(timestamp, fullChapterName);
 	if (!writeToFile(exportTextFilePath, content)) {
@@ -1184,20 +1226,13 @@ QString ChapterMarkerDock::convertTimestampToTimecode(const QString &timestamp, 
 	// Parse the timestamp
 	QTime time = QTime::fromString(timestamp, "HH:mm:ss");
 	if (!time.isValid()) {
-		return "01:00:00:00"; // Default fallback
-	}
-
-	// Get frame rate from OBS
-	obs_video_info ovi;
-	int fps = 30; // Default fallback
-	if (obs_get_video_info(&ovi)) {
-		fps = static_cast<int>(round(static_cast<double>(ovi.fps_num) / ovi.fps_den));
+		return "00:00:00:00"; // Default fallback
 	}
 
 	// Format: HH:MM:SS:FF where FF is frame number (00-29 for 30fps)
 	// For markers, we use frame 00 for start and 01 for end (1 frame duration)
 	return QString("%1:%2:%3:%4")
-		.arg(time.hour() + 1, 2, 10, QChar('0'))  // Add 1 hour offset like in the example
+		.arg(time.hour(), 2, 10, QChar('0'))
 		.arg(time.minute(), 2, 10, QChar('0'))
 		.arg(time.second(), 2, 10, QChar('0'))
 		.arg(frameNumber, 2, 10, QChar('0'));
@@ -1218,13 +1253,7 @@ void ChapterMarkerDock::writeChapterToFCPXMLFile(const QString &chapterName, con
 	// Convert timestamp HH:MM:SS to frame number
 	QTime time = QTime::fromString(timestamp, "HH:mm:ss");
 	int totalSeconds = time.hour() * 3600 + time.minute() * 60 + time.second();
-
-	obs_video_info ovi;
-	int fps = 30;
-	if (obs_get_video_info(&ovi)) {
-		fps = static_cast<int>(round(static_cast<double>(ovi.fps_num) / ovi.fps_den));
-	}
-
+	int fps = getFrameRate();
 	int frameNumber = totalSeconds * fps;
 
 	QFile file(exportFCPXMLFilePath);
@@ -1233,15 +1262,12 @@ void ChapterMarkerDock::writeChapterToFCPXMLFile(const QString &chapterName, con
 		return;
 	}
 
-	QString fullChapterName = chapterName;
-	if (addChapterSourceEnabled && !chapterName.contains(chapterSource)) {
-		fullChapterName += " (" + chapterSource + ")";
-	}
+	QString fullChapterName = appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
 
 	QTextStream out(&file);
 	out << "            <marker>\n";
-	out << "              <comment>" << fullChapterName << "</comment>\n";
-	out << "              <name>" << chapterName << "</name>\n";
+	out << "              <comment>" << escapeXml(fullChapterName) << "</comment>\n";
+	out << "              <name>" << escapeXml(chapterName) << "</name>\n";
 	out << "              <in>" << frameNumber << "</in>\n";
 	out << "              <out>-1</out>\n";
 	out << "            </marker>\n";
@@ -1265,13 +1291,7 @@ void ChapterMarkerDock::writeChapterToPremiereXMLFile(const QString &chapterName
 	// Convert timestamp HH:MM:SS to frame number
 	QTime time = QTime::fromString(timestamp, "HH:mm:ss");
 	int totalSeconds = time.hour() * 3600 + time.minute() * 60 + time.second();
-
-	obs_video_info ovi;
-	int fps = 30;
-	if (obs_get_video_info(&ovi)) {
-		fps = static_cast<int>(round(static_cast<double>(ovi.fps_num) / ovi.fps_den));
-	}
-
+	int fps = getFrameRate();
 	int frameNumber = totalSeconds * fps;
 
 	QFile file(exportPremiereXMLFilePath);
@@ -1280,15 +1300,12 @@ void ChapterMarkerDock::writeChapterToPremiereXMLFile(const QString &chapterName
 		return;
 	}
 
-	QString fullChapterName = chapterName;
-	if (addChapterSourceEnabled && !chapterName.contains(chapterSource)) {
-		fullChapterName += " (" + chapterSource + ")";
-	}
+	QString fullChapterName = appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
 
 	QTextStream out(&file);
 	out << "\t\t<marker>\n";
 	out << "\t\t\t<comment></comment>\n";
-	out << "\t\t\t<name>" << fullChapterName << "</name>\n";
+	out << "\t\t\t<name>" << escapeXml(fullChapterName) << "</name>\n";
 	out << "\t\t\t<in>" << frameNumber << "</in>\n";
 	out << "\t\t\t<out>-1</out>\n";
 	out << "\t\t</marker>\n";
@@ -1375,10 +1392,7 @@ void ChapterMarkerDock::writeChapterToEDLFile(const QString &chapterName, const 
 		.arg(timecodeEnd);
 
 	// Write comment line with marker metadata
-	QString fullChapterName = chapterName;
-	if (addChapterSourceEnabled && !chapterName.contains(chapterSource)) {
-		fullChapterName += " (" + chapterSource + ")";
-	}
+	QString fullChapterName = appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
 
 	// Use different colors based on source for visual distinction in DaVinci Resolve
 	QString markerColor = "ResolveColorBlue";
@@ -1499,8 +1513,8 @@ void ChapterMarkerDock::onSceneChanged()
 				if (!ignoredScenes.contains(sceneName)) {
 					addChapterMarker(sceneName, obs_module_text("ChangeScene"));
 				}
-				obs_source_release(current_scene);
 			}
+			obs_source_release(current_scene); // Always release regardless of scene_name
 		}
 	}
 }
@@ -1518,7 +1532,7 @@ void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QStri
 		}
 	}
 
-	if (!isFirstRunInRecording && insertChapterMarkersInVideoEnabled) {
+	if (insertChapterMarkersInVideoEnabled) {
 		if (obs_frontend_recording_add_chapter_wrapper) {
 			bool success = obs_frontend_recording_add_chapter_wrapper(QT_TO_UTF8(fullChapterName));
 			if (!success) {
@@ -1571,8 +1585,11 @@ void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QStri
 	QString feedbackMessage = QString("%1 %2").arg(obs_module_text("NewChapter")).arg(fullChapterName);
 	showFeedbackMessage(feedbackMessage, false);
 
-	// Update the global current chapter name
-	currentChapterName = fullChapterName;
+	// Update the global current chapter name (mutex protects WebSocket thread reads)
+	{
+		QMutexLocker lock(&currentChapterNameMutex);
+		currentChapterName = fullChapterName;
+	}
 
 	// Move the chapter to the top of the previous chapters list
 	QString displayText = fullChapterName;
@@ -1608,6 +1625,15 @@ void ChapterMarkerDock::onAddChapterMarker(const QString &chapterName, const QSt
 void ChapterMarkerDock::onAddAnnotation(const QString &annotationText, const QString &annotationSource)
 {
 	writeAnnotationToFiles(annotationText, getCurrentRecordingTime(), annotationSource);
+}
+
+int ChapterMarkerDock::getFrameRate() const
+{
+	obs_video_info ovi;
+	if (obs_get_video_info(&ovi) && ovi.fps_den > 0) {
+		return static_cast<int>(round(static_cast<double>(ovi.fps_num) / ovi.fps_den));
+	}
+	return Constants::DEFAULT_FPS;
 }
 
 //--------------------UTILITY FUNCTIONS--------------------
@@ -1655,9 +1681,14 @@ QString ChapterMarkerDock::getCurrentRecordingTime() const
 		const double frameRate = static_cast<double>(ovi.fps_num) / ovi.fps_den;
 		if (frameRate > 0.0) {
 			const uint64_t totalSeconds = static_cast<uint64_t>(framesElapsed / frameRate);
-			QTime recordingTime(0, 0, 0);
-			recordingTime = recordingTime.addSecs(totalSeconds);
-			recordingTimeString = recordingTime.toString("HH:mm:ss");
+			// Use manual calculation instead of QTime to support recordings longer than 24 hours
+			const int hours = static_cast<int>(totalSeconds / 3600);
+			const int minutes = static_cast<int>((totalSeconds % 3600) / 60);
+			const int seconds = static_cast<int>(totalSeconds % 60);
+			recordingTimeString = QString("%1:%2:%3")
+						      .arg(hours, 2, 10, QChar('0'))
+						      .arg(minutes, 2, 10, QChar('0'))
+						      .arg(seconds, 2, 10, QChar('0'));
 		}
 	}
 
@@ -1667,8 +1698,10 @@ QString ChapterMarkerDock::getCurrentRecordingTime() const
 //--------------------CONFIGS--------------------
 void ChapterMarkerDock::LoadSettings(obs_data_t *settings)
 {
-	// Default chapter name
-	defaultChapterName = QString::fromUtf8(obs_data_get_string(settings, "defaultChapterName"));
+	// Default chapter name (fall back to constant if empty/missing)
+	const char *savedName = obs_data_get_string(settings, "defaultChapterName");
+	defaultChapterName = (savedName && *savedName) ? QString::fromUtf8(savedName)
+						       : QString::fromUtf8(Constants::DEFAULT_CHAPTER_NAME);
 	useIncrementalChapterNames = obs_data_get_bool(settings, "useIncrementalChapterNames");
 
 	// Set chapter on scene change
@@ -1714,8 +1747,9 @@ void ChapterMarkerDock::SaveSettings()
 
 	// Default chapter name
 	obs_data_set_string(settings, "defaultChapterName",
-			    defaultChapterNameEdit->text().isEmpty() ? obs_module_text("Chapter")
-								     : defaultChapterNameEdit->text().toStdString().c_str());
+			    defaultChapterNameEdit->text().isEmpty()
+				    ? obs_module_text("Chapter")
+				    : QT_TO_UTF8(defaultChapterNameEdit->text()));
 	obs_data_set_bool(settings, "useIncrementalChapterNames", useIncrementalChapterNames);
 
 	// Set chapter on scene change
@@ -1742,7 +1776,7 @@ void ChapterMarkerDock::SaveSettings()
 	obs_data_array_t *ignoredScenesArray = obs_data_array_create();
 	for (const QString &sceneName : ignoredScenes) {
 		obs_data_t *sceneData = obs_data_create();
-		obs_data_set_string(sceneData, "sceneName", sceneName.toStdString().c_str());
+		obs_data_set_string(sceneData, "sceneName", QT_TO_UTF8(sceneName));
 		obs_data_array_push_back(ignoredScenesArray, sceneData);
 		obs_data_release(sceneData);
 	}

@@ -15,9 +15,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMainWindow>
+#include <QMutex>
 #include <QTextStream>
 
 #define QT_UTF8(str) QString::fromUtf8(str)
+// WARNING: QT_TO_UTF8 returns a pointer to a temporary QByteArray.
+// Only safe when used immediately (e.g., passed directly to a function).
+// Never store the returned pointer for later use.
 #define QT_TO_UTF8(str) str.toUtf8().constData()
 
 OBS_DECLARE_MODULE()
@@ -25,6 +29,8 @@ OBS_MODULE_AUTHOR("Andilippi");
 OBS_MODULE_USE_DEFAULT_LOCALE("streamup-record-chapter-manager", "en-US")
 
 static ChapterMarkerDock *chapterMarkerDock = nullptr;
+QMutex currentChapterNameMutex;
+QString currentChapterName;
 
 static void LoadChapterMarkerDock()
 {
@@ -61,7 +67,6 @@ static void OnStartRecording()
 
 	chapterMarkerDock->createExportFiles();
 
-	QString timestamp = chapterMarkerDock->getCurrentRecordingTime();
 	chapterMarkerDock->addChapterMarker(obs_module_text("Start"), obs_module_text("Recording"));
 }
 
@@ -97,9 +102,15 @@ void EmitWebSocketEvent(const char *event_type, obs_data_t *data)
 
 void WebsocketRequestSetChapterMarker(obs_data_t *request_data, obs_data_t *response_data, void *)
 {
+	// Check if dock is available first to avoid null dereference
+	if (!chapterMarkerDock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "message", obs_module_text("ChapterMarkerNotOpen"));
+		return;
+	}
+
 	// Check if the recording is active
 	if (!obs_frontend_recording_active()) {
-		// Update the response to indicate failure because recording is not active
 		obs_data_set_bool(response_data, "success", false);
 		obs_data_set_string(response_data, "message", obs_module_text("ChapterMarkerNotActive"));
 		return;
@@ -114,9 +125,19 @@ void WebsocketRequestSetChapterMarker(obs_data_t *request_data, obs_data_t *resp
 	QString qChapterSource = QString::fromUtf8(chapterSource ? chapterSource : "");
 
 	// If chapterName is empty, use the default chapter name logic
+	// Use thread-safe signal emission since WebSocket callbacks run on a non-UI thread
 	if (qChapterName.isEmpty()) {
-		qChapterName = chapterMarkerDock->defaultChapterName + " " + QString::number(chapterMarkerDock->chapterCount);
-		chapterMarkerDock->chapterCount++;
+		QString defaultName;
+		int count;
+		QMetaObject::invokeMethod(
+			chapterMarkerDock,
+			[&defaultName, &count]() {
+				defaultName = chapterMarkerDock->defaultChapterName;
+				count = chapterMarkerDock->chapterCount;
+				chapterMarkerDock->chapterCount++;
+			},
+			Qt::BlockingQueuedConnection);
+		qChapterName = defaultName + " " + QString::number(count);
 	}
 
 	// If chapterSource is empty, default to "WebSocket"
@@ -124,22 +145,17 @@ void WebsocketRequestSetChapterMarker(obs_data_t *request_data, obs_data_t *resp
 		qChapterSource = obs_module_text("WebSocket");
 	}
 
-	// Emit the signal to add the chapter marker
-	if (chapterMarkerDock) {
-		emit chapterMarkerDock->addChapterMarkerSignal(qChapterName, qChapterSource);
+	// Emit the signal to add the chapter marker (queued to UI thread)
+	emit chapterMarkerDock->addChapterMarkerSignal(qChapterName, qChapterSource);
 
-		// Update the response to indicate success
-		obs_data_set_bool(response_data, "success", true);
-		obs_data_set_string(response_data, "message", obs_module_text("ChapterMarkerAdded"));
-	} else {
-		// Update the response to indicate failure
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "message", obs_module_text("ChapterMarkerNotOpen"));
-	}
+	// Update the response to indicate success
+	obs_data_set_bool(response_data, "success", true);
+	obs_data_set_string(response_data, "message", obs_module_text("ChapterMarkerAdded"));
 }
 
 QString GetCurrentChapterName()
 {
+	QMutexLocker lock(&currentChapterNameMutex);
 	return currentChapterName;
 }
 
@@ -168,6 +184,20 @@ void WebsocketRequestGetCurrentChapterMarker(obs_data_t *request_data, obs_data_
 
 void WebsocketRequestSetAnnotation(obs_data_t *request_data, obs_data_t *response_data, void *)
 {
+	// Check if dock is available first to avoid null dereference
+	if (!chapterMarkerDock) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "message", obs_module_text("ChapterMarkerNotOpen"));
+		return;
+	}
+
+	// Check if the recording is active
+	if (!obs_frontend_recording_active()) {
+		obs_data_set_bool(response_data, "success", false);
+		obs_data_set_string(response_data, "message", obs_module_text("AnnotationRecordingNotActive"));
+		return;
+	}
+
 	// Retrieve annotation text and source from the request data
 	const char *annotationText = obs_data_get_string(request_data, "annotationText");
 	const char *annotationSource = obs_data_get_string(request_data, "annotationSource");
@@ -176,20 +206,8 @@ void WebsocketRequestSetAnnotation(obs_data_t *request_data, obs_data_t *respons
 	QString qAnnotationText = QString::fromUtf8(annotationText ? annotationText : "");
 	QString qAnnotationSource = QString::fromUtf8(annotationSource ? annotationSource : "");
 
-	emit chapterMarkerDock->addAnnotationSignal(qAnnotationText, qAnnotationSource);
-
-	// Check if the recording is active
-	if (!obs_frontend_recording_active()) {
-		// Update the response to indicate failure because recording is not active
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "message", obs_module_text("AnnotationRecordingNotActive"));
-		return;
-	}
-
-
 	// If annotationText is empty, return an error
 	if (qAnnotationText.isEmpty()) {
-		// Update the response to indicate failure because annotation text is empty
 		obs_data_set_bool(response_data, "success", false);
 		obs_data_set_string(response_data, "message", obs_module_text("AnnotationErrorTextIsEmpty"));
 		return;
@@ -200,17 +218,12 @@ void WebsocketRequestSetAnnotation(obs_data_t *request_data, obs_data_t *respons
 		qAnnotationSource = obs_module_text("WebSocket");
 	}
 
-	// Emit the signal to add the annotation
-	if (chapterMarkerDock) {
+	// All validation passed - emit the signal to add the annotation (queued to UI thread)
+	emit chapterMarkerDock->addAnnotationSignal(qAnnotationText, qAnnotationSource);
 
-		// Update the response to indicate success
-		obs_data_set_bool(response_data, "success", true);
-		obs_data_set_string(response_data, "message", obs_module_text("AnnotationAdded"));
-	} else {
-		// Update the response to indicate failure
-		obs_data_set_bool(response_data, "success", false);
-		obs_data_set_string(response_data, "message", obs_module_text("ChapterMarkerNotOpen"));
-	}
+	// Update the response to indicate success
+	obs_data_set_bool(response_data, "success", true);
+	obs_data_set_string(response_data, "message", obs_module_text("AnnotationAdded"));
 }
 
 //--------------------HOTKEY HANDLERS--------------------
@@ -226,19 +239,21 @@ static void SaveLoadHotkeys(obs_data_t *save_data, bool saving, void *)
 		obs_data_set_array(save_data, "addDefaultChapterMarkerHotkey", hotkey_save_array);
 		obs_data_array_release(hotkey_save_array);
 
-		// Save preset chapter hotkeys
-		chapterMarkerDock->SaveChapterHotkeys(save_data);
+		if (chapterMarkerDock) {
+			// Save preset chapter hotkeys
+			chapterMarkerDock->SaveChapterHotkeys(save_data);
 
-		// Save preset chapters
-		obs_data_array_t *chaptersArray = obs_data_array_create();
-		for (const auto &chapter : chapterMarkerDock->presetChapters) {
-			obs_data_t *chapterData = obs_data_create();
-			obs_data_set_string(chapterData, "chapterName", QT_TO_UTF8(chapter));
-			obs_data_array_push_back(chaptersArray, chapterData);
-			obs_data_release(chapterData);
+			// Save preset chapters
+			obs_data_array_t *chaptersArray = obs_data_array_create();
+			for (const auto &chapter : chapterMarkerDock->presetChapters) {
+				obs_data_t *chapterData = obs_data_create();
+				obs_data_set_string(chapterData, "chapterName", QT_TO_UTF8(chapter));
+				obs_data_array_push_back(chaptersArray, chapterData);
+				obs_data_release(chapterData);
+			}
+			obs_data_set_array(save_data, "presetChapters", chaptersArray);
+			obs_data_array_release(chaptersArray);
 		}
-		obs_data_set_array(save_data, "presetChapters", chaptersArray);
-		obs_data_array_release(chaptersArray);
 
 	} else {
 		// Load default chapter hotkey
@@ -246,7 +261,7 @@ static void SaveLoadHotkeys(obs_data_t *save_data, bool saving, void *)
 		obs_hotkey_load(addDefaultChapterMarkerHotkey, hotkey_load_array);
 		obs_data_array_release(hotkey_load_array);
 
-		if (is_first_run) {
+		if (is_first_run && chapterMarkerDock) {
 			// Load preset chapter hotkeys
 			chapterMarkerDock->LoadChapterHotkeys(save_data);
 
@@ -266,17 +281,31 @@ void AddDefaultChapterMarkerHotkey(void *data, obs_hotkey_id id, obs_hotkey_t *h
 
 	if (!pressed)
 		return;
+	if (!chapterMarkerDock)
+		return;
 	if (!obs_frontend_recording_active()) {
-		chapterMarkerDock->showFeedbackMessage(obs_module_text("ChapterMarkerNotActive"), true);
-
+		// Hotkey callbacks run on the OBS thread; marshal to UI thread
+		QMetaObject::invokeMethod(
+			chapterMarkerDock,
+			[msg = QString(obs_module_text("ChapterMarkerNotActive"))]() {
+				chapterMarkerDock->showFeedbackMessage(msg, true);
+			},
+			Qt::QueuedConnection);
 		return;
 	}
 
-	QString chapterName = chapterMarkerDock->defaultChapterName + " " + QString::number(chapterMarkerDock->chapterCount);
-	chapterMarkerDock->addChapterMarker(chapterName, obs_module_text("Hotkey"));
-	blog(LOG_INFO, "[StreamUP Record Chapter Manager] chapterCount: %d", chapterMarkerDock->chapterCount);
-
-	chapterMarkerDock->chapterCount++; // Increment the chapter count
+	// Marshal UI-touching work to the main thread
+	QMetaObject::invokeMethod(
+		chapterMarkerDock,
+		[]() {
+			QString chapterName = chapterMarkerDock->defaultChapterName + " " +
+					      QString::number(chapterMarkerDock->chapterCount);
+			chapterMarkerDock->addChapterMarker(chapterName, obs_module_text("Hotkey"));
+			blog(LOG_INFO, "[StreamUP Record Chapter Manager] chapterCount: %d",
+			     chapterMarkerDock->chapterCount);
+			chapterMarkerDock->chapterCount++;
+		},
+		Qt::QueuedConnection);
 }
 
 void AddChapterMarkerHotkey(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
@@ -285,23 +314,38 @@ void AddChapterMarkerHotkey(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, 
 
 	if (!pressed)
 		return;
+	if (!chapterMarkerDock)
+		return;
 	if (!obs_frontend_recording_active()) {
-		chapterMarkerDock->showFeedbackMessage(obs_module_text("ChapterMarkerNotActive"), true);
+		QMetaObject::invokeMethod(
+			chapterMarkerDock,
+			[msg = QString(obs_module_text("ChapterMarkerNotActive"))]() {
+				chapterMarkerDock->showFeedbackMessage(msg, true);
+			},
+			Qt::QueuedConnection);
 		return;
 	}
 
 	QString chapterName;
 	ChapterMarkerDock *dock = reinterpret_cast<ChapterMarkerDock *>(data);
-	for (const auto &entry : dock->chapterHotkeys.toStdMap()) {
-		if (entry.second == id) {
-			chapterName = entry.first;
+	// Iterate QMap directly instead of copying to std::map
+	for (auto it = dock->chapterHotkeys.constBegin(); it != dock->chapterHotkeys.constEnd(); ++it) {
+		if (it.value() == id) {
+			chapterName = it.key();
 			break;
 		}
 	}
 
 	if (!chapterName.isEmpty()) {
-		chapterMarkerDock->addChapterMarker(chapterName, obs_module_text("PresetHotkey"));
-		blog(LOG_INFO, "[StreamUP Record Chapter Manager] Added chapter marker for: %s", QT_TO_UTF8(chapterName));
+		// Marshal to UI thread
+		QMetaObject::invokeMethod(
+			chapterMarkerDock,
+			[name = chapterName]() {
+				chapterMarkerDock->addChapterMarker(name, obs_module_text("PresetHotkey"));
+				blog(LOG_INFO, "[StreamUP Record Chapter Manager] Added chapter marker for: %s",
+				     QT_TO_UTF8(name));
+			},
+			Qt::QueuedConnection);
 	}
 }
 
@@ -387,22 +431,29 @@ bool obs_module_load()
 	blog(LOG_INFO, "[StreamUP Record Chapter Manager] loaded version %s", PROJECT_VERSION);
 
 	void *handle = os_dlopen("obs-frontend-api");
-	obs_frontend_recording_add_chapter_wrapper =
-		(bool (*)(const char *name))os_dlsym(handle, "obs_frontend_recording_add_chapter");
+	if (handle) {
+		obs_frontend_recording_add_chapter_wrapper =
+			(bool (*)(const char *name))os_dlsym(handle, "obs_frontend_recording_add_chapter");
+	}
 
 	RegisterHotkeys();
-	RegisterWebsocketRequests();
 
 	obs_frontend_add_save_callback(SaveLoadHotkeys, nullptr);
+	// Note: FrontEndEventHandler is registered here for recording start/stop events.
+	// The dock's setupOBSCallbacks() handles scene change events separately.
 	obs_frontend_add_event_callback(FrontEndEventHandler, nullptr);
 
 	LoadChapterMarkerDock();
-	chapterMarkerDock->loadAnnotationDock();
+	if (chapterMarkerDock) {
+		chapterMarkerDock->loadAnnotationDock();
+	}
 
 	obs_data_t *settings = SaveLoadSettingsCallback(nullptr, false);
 
 	if (settings) {
-		chapterMarkerDock->LoadSettings(settings);
+		if (chapterMarkerDock) {
+			chapterMarkerDock->LoadSettings(settings);
+		}
 		obs_data_release(settings);
 	}
 
@@ -416,7 +467,12 @@ bool obs_module_load()
 
 void obs_module_post_load(void)
 {
-	chapterMarkerDock->refreshMainDockUI();
+	// WebSocket vendor registration must happen in post_load per obs-websocket API requirements
+	RegisterWebsocketRequests();
+
+	if (chapterMarkerDock) {
+		chapterMarkerDock->refreshMainDockUI();
+	}
 }
 
 //--------------------EXIT COMMANDS--------------------

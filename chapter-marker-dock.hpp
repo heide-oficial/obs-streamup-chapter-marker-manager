@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef CHAPTER_MARKER_DOCK_HPP
-#define CHAPTER_MARKER_DOCK_HPP
-
 #include <obs-frontend-api.h>
 #include <QCheckBox>
 #include <QDialog>
@@ -40,6 +37,7 @@ public:
 	QString getDefaultChapterName() const { return defaultChapterName; }
 
 	QString getCurrentRecordingTime() const;
+	int getFrameRate() const;
 	void updateCurrentChapterLabel(const QString &chapterName);
 	void createExportFiles();
 	void showFeedbackMessage(const QString &message, bool isError);
@@ -94,7 +92,7 @@ signals:
 public slots:
 	void onAddChapterMarkerButton();
 	void onSettingsClicked();
-	void onAnnotationClicked(bool startup);
+	void onAnnotationClicked(bool refresh = false);
 	void loadAnnotationDock();
 	void onSceneChanged();
 	void onRecordingStopped();
@@ -179,5 +177,3 @@ private:
 	QVBoxLayout *exportSettingsLayout;
 	bool incompatibleFileTypeMessageShown = false;
 };
-
-#endif // CHAPTER_MARKER_DOCK_HPP

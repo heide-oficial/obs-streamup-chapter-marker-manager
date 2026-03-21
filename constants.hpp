@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef CONSTANTS_HPP
-#define CONSTANTS_HPP
-
 namespace Constants {
 	// Timer intervals (milliseconds)
 	constexpr int FEEDBACK_TIMER_INTERVAL = 5000;
@@ -14,10 +11,10 @@ namespace Constants {
 	constexpr int BUTTON_MAX_HEIGHT = 24;
 	constexpr int BUTTON_ICON_SIZE = 20;
 	constexpr int INDENT_SPACING = 20;
-	constexpr int LIST_HEIGHT_ROWS = 10;
 	constexpr int LIST_WIDTH_PADDING = 30;
 
 	// Default values
+	constexpr int DEFAULT_FPS = 30;
 	constexpr const char *DEFAULT_CHAPTER_NAME = "Chapter";
 	constexpr const char *DEFAULT_TIMESTAMP = "00:00:00";
 	constexpr int DEFAULT_CHAPTER_COUNT = 1;
@@ -55,5 +52,3 @@ namespace Constants {
 	constexpr const char *AITUM_VERTICAL_PROC = "aitum_vertical_add_chapter";
 	constexpr const char *AITUM_VERTICAL_PARAM = "chapter_name";
 } // namespace Constants
-
-#endif // CONSTANTS_HPP

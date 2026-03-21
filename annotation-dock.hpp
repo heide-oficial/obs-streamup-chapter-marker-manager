@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef ANNOTATION_DOCK_HPP
-#define ANNOTATION_DOCK_HPP
-
 #include <QFrame>
 #include <QLabel>
 #include <QPushButton>
@@ -49,5 +46,3 @@ private:
 	// Parent reference
 	ChapterMarkerDock *chapterDock;
 };
-
-#endif // ANNOTATION_DOCK_HPP
