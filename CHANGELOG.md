@@ -2,6 +2,23 @@
 
 ---
 
+## v1.2.1 (21 Mar '26)
+**Patch Focus:** Export fixes & stability improvements
+- Fixed FCP XML export producing invalid XML structure that could not be parsed by Final Cut Pro or third-party tools
+- Fixed FCP XML missing required file URL format and name elements
+- Fixed EDL timecodes being offset by 1 hour in DaVinci Resolve
+- Fixed EDL header always reporting non-drop frame even when recording at 29.97/59.94 fps
+- Fixed "Start" chapter marker not being embedded into the MP4 video file
+- Fixed "End" marker only being written to text export — now written to all enabled export formats
+- Fixed special characters in chapter names breaking XML exports
+- Fixed potential crash when accessing chapter name from WebSocket while a chapter is being set
+- Fixed potential crash from dangling string pointers when saving settings
+- Fixed potential division by zero when retrieving frame rate
+- Fixed default chapter name resetting to blank on first launch
+- Improved thread safety for hotkey and WebSocket callbacks
+- Added null safety checks throughout WebSocket and hotkey handlers
+- Reduced code duplication across export format writers
+
 ## v1.2.0 (27 Oct '25)
 **Patch Focus:** Export formats & workflow polish
 - Added Final Cut Pro XML and Premiere Pro XML export options with NTSC handling and marker metadata

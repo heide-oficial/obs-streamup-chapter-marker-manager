@@ -33,12 +33,12 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "com.andilippi.streamup-hotkey-display"
+            "bundleId": "com.andilippi.obs-chapter-marker-manager"
         }
     },
     "name": "streamup-record-chapter-manager",
     "displayName": "StreamUP Record Chapter Manager",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "Andi Stone Media",
     "website": "https://streamup.tips",
     "email": "hello@streamup.tips",
