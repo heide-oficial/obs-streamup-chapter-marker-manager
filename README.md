@@ -1,38 +1,87 @@
-# Overview​
-The StreamUP Chapter Marker Manager is your all in one solution for creating and tracking chapter markers in your recordings in OBS. Since creating content on multiple platforms is so important nowadays, this will help you keep track of the moments you want to make videos out of.
+# StreamUP Chapter Marker Manager for OBS Studio
 
-There are many different ways you can create chapter markers and annotations:
-- In the OBS UI via the docks.
-- WebSocket. (This means it is compatible with software like Streamer.Bot)
-- Hotkeys. (You can even set chapter names to use on different hotkeys!)
-- Automatically. (This will automatically add chapter markers when you change scene. Don’t worry, you can set scenes to ignore!)
+Chapter markers and annotations for your OBS recordings. If you're making content for multiple platforms, this keeps track of the moments you want to come back to later. Drop a marker, keep recording, sort it out in the edit.
 
-All of these chapter markers can be exported in various ways:
-- Insert them into the actual video. (This will require OBS 30.2.0 and above. You will also need to use a compatible file type such as Hybrid mp4)
-- Export them to a text file.
-- Export them to an XML file.
+## Creating Chapter Markers
 
-# Guide​
-If you want to find out more about the plugin and how to use it then please check out the [full guide](https://streamup.notion.site/OBS-Chapter-Marker-Manager-1567a7ed1438449cbbe8be87143568df?pvs=74)!
+There are a few ways to do it depending on how you work:
 
-If you have any feedback or requests for this plugin please share them in the [StreamUP Discord server](https://discord.com/invite/RnDKRaVCEu?).
+- **Dock UI** - Type a name and hit save or just press Enter. Leave it blank and it'll use the default name.
+- **Hotkeys** - Set up a default chapter hotkey, or create preset hotkeys with specific names for things you mark often.
+- **WebSocket** - Full WebSocket support so tools like Streamer.Bot can create markers on your behalf.
+- **Automatic** - Drops a chapter marker every time you switch scenes. You can set scenes to ignore so it doesn't go mental.
 
-# Build
-1. In-tree build
-    - Build OBS Studio: https://obsproject.com/wiki/Install-Instructions
-    - Check out this repository to plugins/streamup
-    - Add `add_subdirectory(streamup)` to plugins/CMakeLists.txt
-    - Rebuild OBS Studio
+Incremental naming is built in too. Chapter 1, Chapter 2, and so on. No thinking required.
 
-1. Stand-alone build (Linux only)
-    - Verify that you have package with development files for OBS
-    - Check out this repository and run `cmake -S . -B build -DBUILD_OUT_OF_TREE=On && cmake --build build`
+## Export Formats
 
-# Support
-This plugin is manually maintained by Andi as he updates all the links constantly to make your life easier. Please consider supporting to keep this plugin running!
-- [**Patreon**](https://www.patreon.com/Andilippi) - Get access to all my products and more exclusive perks
-- [**Ko-Fi**](https://ko-fi.com/andilippi) - Get access to all my products and more exclusive perks
-- [**PayPal**](https://www.paypal.me/andilippi) - Send me a beer to say thanks!
-- [**Twitch**](https://www.twitch.tv/andilippi) - Come say hi and feel free to ask questions!
-- [**YouTube**](https://www.youtube.com/andilippi) - Learn more about OBS and upgrading your streams
+Your markers can go wherever your editing software needs them:
 
+- **Text file** - One line per chapter with timestamps. Simple.
+- **FCP XML** - Frame-accurate markers for Final Cut Pro with NTSC drop-frame support.
+- **Premiere XML** - Same deal but for Adobe Premiere Pro.
+- **EDL** - Industry standard Edit Decision List. Colour-coded markers in DaVinci Resolve based on how the chapter was created (manual, hotkey, scene change, WebSocket).
+- **Embedded in video** - Insert chapters directly into the recording file. Needs a compatible container like Hybrid MP4.
+
+Files get saved alongside your recording automatically.
+
+## Annotations
+
+There's a separate Annotation dock for longer timestamped notes. Handy for jotting down thoughts during a recording that you want to reference in the edit. Annotations get written to the same export files as your chapters.
+
+## Docks
+
+Two docks get added to OBS:
+
+- **Chapter Marker Dock** - The main one. Chapter input, current chapter display, settings, and optional chapter history.
+- **Annotation Dock** - A text area for saving longer timestamped notes during recording.
+
+## WebSocket API
+
+Registered under the `streamup-chapter-manager` vendor with three requests:
+
+| Request | What it does |
+|---------|-------------|
+| `setChapterMarker` | Creates a new chapter at the current timestamp |
+| `getCurrentChapterMarker` | Returns the name of the active chapter |
+| `setAnnotation` | Adds a timestamped annotation to the export files |
+
+Also emits `ChapterMarkerSet` and `AnnotationSet` events so external tools can react to new markers in real time.
+
+## Settings
+
+All configurable from the gear icon in the dock:
+
+- Default chapter name and incremental naming
+- Show or hide chapter history
+- Include the source (Manual, Hotkey, WebSocket, etc.) in chapter names
+- Preset hotkeys for names you use often
+- Which export formats to enable
+- Auto chapter on scene change with ignored scene filtering
+
+## Build
+
+**In-tree build:**
+1. Build OBS Studio: https://obsproject.com/wiki/Install-Instructions
+2. Check out this repository to `frontend/plugins/obs-streamup-chapter-marker-manager`
+3. Add `add_subdirectory(obs-streamup-chapter-marker-manager)` to `frontend/plugins/CMakeLists.txt`
+4. Rebuild OBS Studio
+
+**Stand-alone build (Linux only):**
+1. Make sure you have the OBS development packages installed
+2. Check out this repository and run `cmake -S . -B build -DBUILD_OUT_OF_TREE=On && cmake --build build`
+
+## Guide
+
+For the full walkthrough, check out the [guide on Notion](https://streamup.notion.site/OBS-Chapter-Marker-Manager-1567a7ed1438449cbbe8be87143568df?pvs=74).
+
+Got feedback or requests? Drop them in the [StreamUP Discord](https://discord.com/invite/RnDKRaVCEu).
+
+## Support
+
+Built and maintained by Andi. If this has been useful, consider supporting to keep it going.
+
+- [**Memberships**](https://andilippi.co.uk/pages/memberships) - Access all products and exclusive perks
+- [**PayPal**](https://www.paypal.me/andilippi) - Buy me a beer
+- [**Twitch**](https://www.twitch.tv/andilippi) - Come hang out and ask questions
+- [**YouTube**](https://www.youtube.com/andilippi) - Tutorials on OBS and streaming
