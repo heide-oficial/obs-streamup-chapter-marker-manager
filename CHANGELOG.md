@@ -2,6 +2,16 @@
 
 ---
 
+## v1.3.0 (12 Apr '26)
+**Patch Focus:** StreamUP UI design system & settings redesign
+- Migrated all settings dialogs to the StreamUP frameless design system with Catppuccin Mocha theming
+- Replaced all QCheckBox controls with SwitchWidget toggles for visual consistency across StreamUP plugins
+- Replaced QDialogButtonBox with styled buttons in all dialogs (settings, preset chapters, ignored scenes)
+- Added palette() styling to dock list widgets for OBS theme compatibility
+- Settings dialog now uses a two-column layout for better use of space
+- Switched all dialogs from blocking exec() to non-blocking show/raise/activateWindow
+- Added spacing between annotation button and settings button in the dock toolbar
+
 ## v1.2.1 (21 Mar '26)
 **Patch Focus:** Export fixes & stability improvements
 - Fixed FCP XML export producing invalid XML structure that could not be parsed by Final Cut Pro or third-party tools
