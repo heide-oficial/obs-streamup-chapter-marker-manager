@@ -1,7 +1,6 @@
 #pragma once
 
 #include <obs-frontend-api.h>
-#include <QCheckBox>
 #include <QDialog>
 #include <QFrame>
 #include <QGroupBox>
@@ -13,6 +12,8 @@
 #include <QStringList>
 #include <QTimer>
 #include <QVBoxLayout>
+
+#include "streamup-ui.hpp"
 
 // Forward declaration of AnnotationDock
 class AnnotationDock;
@@ -125,13 +126,13 @@ private:
 	void setupSettingsAutoChapterGroup(QVBoxLayout *mainLayout);
 	void saveIgnoredScenes();
 	void populateIgnoredScenesListWidget();
-	QCheckBox *exportChaptersToFileCheckbox;
-	QCheckBox *exportChaptersToTextCheckbox;
-	QCheckBox *exportChaptersToFCPXMLCheckbox;
-	QCheckBox *exportChaptersToPremiereXMLCheckbox;
-	QCheckBox *exportChaptersToEDLCheckbox;
+	SwitchWidget *exportChaptersToFileCheckbox;
+	SwitchWidget *exportChaptersToTextCheckbox;
+	SwitchWidget *exportChaptersToFCPXMLCheckbox;
+	SwitchWidget *exportChaptersToPremiereXMLCheckbox;
+	SwitchWidget *exportChaptersToEDLCheckbox;
 	QGroupBox *exportSettingsGroup;
-	QCheckBox *insertChapterMarkersCheckbox;
+	SwitchWidget *insertChapterMarkersCheckbox;
 	void setupSettingsExportGroup(QVBoxLayout *mainLayout);
 	void onExportChaptersToFileToggled(bool checked);
 	void onChapterOnSceneChangeToggled(bool checked);
@@ -160,10 +161,10 @@ private:
 	QPushButton *saveChapterMarkerButton;
 
 	QLineEdit *defaultChapterNameEdit;
-	QCheckBox *showPreviousChaptersCheckbox;
-	QCheckBox *fullChapterHistoryCheckbox;
-	QCheckBox *addChapterSourceCheckbox;
-	QCheckBox *chapterOnSceneChangeCheckbox;
+	SwitchWidget *showPreviousChaptersCheckbox;
+	SwitchWidget *fullChapterHistoryCheckbox;
+	SwitchWidget *addChapterSourceCheckbox;
+	SwitchWidget *chapterOnSceneChangeCheckbox;
 	QListWidget *ignoredScenesListWidget;
 	QGroupBox *ignoredScenesGroup;
 

@@ -42,6 +42,8 @@ void AnnotationDock::setupUI()
 	mainLayout->setSpacing(0);
 
 	annotationEdit->setObjectName("annotationEdit");
+	annotationEdit->setStyleSheet(
+		"QTextEdit { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; padding: 4px; }");
 	mainLayout->addWidget(annotationEdit);
 	mainLayout->addSpacing(6);
 

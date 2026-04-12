@@ -88,6 +88,7 @@ target_sources(${PROJECT_NAME} PRIVATE
   streamup-record-chapter-manager.hpp
   chapter-marker-dock.cpp
   chapter-marker-dock.hpp
+  streamup-ui.hpp
   annotation-dock.cpp
   annotation-dock.hpp
   obs-websocket-api.h
