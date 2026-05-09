@@ -1115,6 +1115,9 @@ void ChapterMarkerDock::createExportFiles()
 	QString baseName = fileInfo.completeBaseName();
 	QString directoryPath = fileInfo.absolutePath();
 
+	recordingMediaPath = outputPath;
+	recordingMediaBaseName = baseName;
+
 	if (exportChaptersToTextEnabled) {
 		const QString chapterFilePath = directoryPath + "/" + baseName + Constants::TEXT_FILE_SUFFIX;
 		QFile file(chapterFilePath);
@@ -1132,42 +1135,11 @@ void ChapterMarkerDock::createExportFiles()
 
 	if (exportChaptersToFCPXMLEnabled) {
 		const QString fcpXmlFilePath = directoryPath + "/" + baseName + Constants::FCPXML_FILE_SUFFIX;
-		QFile fcpXmlFile(fcpXmlFilePath);
-		if (fcpXmlFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-			QTextStream out(&fcpXmlFile);
-			int fps = getFrameRate();
-
-			// Build file:// URL for FCP7 compatibility
-			QString fileUrl = "file://localhost/" + QDir::fromNativeSeparators(outputPath);
-
-			out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-			out << "<!DOCTYPE xmeml>\n";
-			out << "<xmeml version=\"5\">\n";
-			out << "  <clip>\n";
-			out << "    <name>" << escapeXml(baseName) << "</name>\n";
-			out << "    <rate>\n";
-			out << "      <timebase>" << fps << "</timebase>\n";
-			out << "    </rate>\n";
-			out << "    <media>\n";
-			out << "      <video>\n";
-			out << "        <track>\n";
-			out << "          <clipitem>\n";
-			out << "            <name>" << escapeXml(baseName) << "</name>\n";
-			out << "            <file id=\"file1\">\n";
-			out << "              <name>" << escapeXml(baseName) << "</name>\n";
-			out << "              <pathurl>" << escapeXml(fileUrl) << "</pathurl>\n";
-			out << "              <media>\n";
-			out << "                <video/>\n";
-			out << "              </media>\n";
-			out << "            </file>\n";
-			// Markers will be appended here before closing tags
-			fcpXmlFile.close();
-			blog(LOG_INFO, "[StreamUP Record Chapter Manager] Created FCP XML chapter file: %s", QT_TO_UTF8(fcpXmlFilePath));
-			setExportFCPXMLFilePath(fcpXmlFilePath);
-		} else {
-			blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to create FCP XML chapter file: %s",
-			     QT_TO_UTF8(fcpXmlFilePath));
-		}
+		// FCPXML requires the asset duration up-front, so we buffer markers in
+		// memory during recording and write the full document in closeFCPXMLFile().
+		fcpChapters.clear();
+		setExportFCPXMLFilePath(fcpXmlFilePath);
+		blog(LOG_INFO, "[StreamUP Record Chapter Manager] FCPXML chapter file path set: %s", QT_TO_UTF8(fcpXmlFilePath));
 	}
 
 	if (exportChaptersToPremiereXMLEnabled) {
@@ -1296,34 +1268,18 @@ void ChapterMarkerDock::writeChapterToFCPXMLFile(const QString &chapterName, con
 	}
 
 	if (exportFCPXMLFilePath.isEmpty()) {
-		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] FCP XML file path is not set, creating a new file.");
+		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] FCPXML file path is not set, creating a new file.");
 		createExportFiles();
 		return;
 	}
 
-	// Convert timestamp HH:MM:SS to frame number
 	QTime time = QTime::fromString(timestamp, "HH:mm:ss");
 	int totalSeconds = time.hour() * 3600 + time.minute() * 60 + time.second();
 	int fps = getFrameRate();
 	int frameNumber = totalSeconds * fps;
 
-	QFile file(exportFCPXMLFilePath);
-	if (!file.open(QIODevice::Append | QIODevice::Text)) {
-		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to open FCP XML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
-		return;
-	}
-
 	QString fullChapterName = appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
-
-	QTextStream out(&file);
-	out << "            <marker>\n";
-	out << "              <comment>" << escapeXml(fullChapterName) << "</comment>\n";
-	out << "              <name>" << escapeXml(chapterName) << "</name>\n";
-	out << "              <in>" << frameNumber << "</in>\n";
-	out << "              <out>-1</out>\n";
-	out << "            </marker>\n";
-	file.close();
-
+	fcpChapters.append(qMakePair(frameNumber, fullChapterName));
 	fcpMarkerID++;
 }
 
@@ -1369,22 +1325,88 @@ void ChapterMarkerDock::closeFCPXMLFile()
 		return;
 	}
 
+	obs_video_info ovi = {};
+	bool oviOk = obs_get_video_info(&ovi) && ovi.fps_num > 0 && ovi.fps_den > 0;
+	uint32_t fpsNum = oviOk ? ovi.fps_num : 30000;
+	uint32_t fpsDen = oviOk ? ovi.fps_den : 1000;
+	uint32_t width = (oviOk && ovi.output_width > 0) ? ovi.output_width : 1920;
+	uint32_t height = (oviOk && ovi.output_height > 0) ? ovi.output_height : 1080;
+
+	// Asset/clip duration in frames: max marker frame, padded so the last
+	// chapter has somewhere to live. Falls back to a non-zero duration if
+	// no chapters were captured.
+	int durationFrames = 0;
+	for (const auto &m : fcpChapters) {
+		if (m.first > durationFrames) {
+			durationFrames = m.first;
+		}
+	}
+	int padFrames = static_cast<int>(round(static_cast<double>(fpsNum) / static_cast<double>(fpsDen)));
+	if (padFrames < 1) {
+		padFrames = 1;
+	}
+	durationFrames += padFrames;
+	if (durationFrames < padFrames) {
+		durationFrames = padFrames;
+	}
+
+	const QString assetName = recordingMediaBaseName.isEmpty()
+					  ? QFileInfo(exportFCPXMLFilePath).completeBaseName()
+					  : recordingMediaBaseName;
+
+	// FCPXML's <media-rep src> is required, so always produce a file:// URL.
+	// Fall back to a synthesised path next to the FCPXML if no recording
+	// path was captured (defensive; createExportFiles normally sets it).
+	QString srcPath = recordingMediaPath;
+	if (srcPath.isEmpty()) {
+		srcPath = QFileInfo(exportFCPXMLFilePath).absolutePath() + "/" + assetName + ".mp4";
+	}
+	QString abs = QDir::fromNativeSeparators(QFileInfo(srcPath).absoluteFilePath());
+	if (!abs.startsWith('/')) {
+		abs.prepend('/');
+	}
+	const QString srcUrl = "file://" + abs;
+
 	QFile file(exportFCPXMLFilePath);
-	if (!file.open(QIODevice::Append | QIODevice::Text)) {
-		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to close FCP XML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to write FCPXML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
 		return;
 	}
 
 	QTextStream out(&file);
-	out << "          </clipitem>\n";
-	out << "        </track>\n";
-	out << "      </video>\n";
-	out << "    </media>\n";
-	out << "  </clip>\n";
-	out << "</xmeml>\n";
+	out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+	out << "<!DOCTYPE fcpxml>\n";
+	out << "<fcpxml version=\"1.13\">\n";
+	out << "  <resources>\n";
+	out << "    <format id=\"r1\" name=\"FFVideoFormat\" frameDuration=\"" << fpsDen << "/" << fpsNum
+	    << "s\" width=\"" << width << "\" height=\"" << height << "\"/>\n";
+	out << "    <asset id=\"r2\" name=\"" << escapeXml(assetName)
+	    << "\" start=\"0s\" hasVideo=\"1\" hasAudio=\"1\" videoSources=\"1\" audioSources=\"1\" duration=\""
+	    << (static_cast<qint64>(durationFrames) * fpsDen) << "/" << fpsNum << "s\" format=\"r1\">\n";
+	out << "      <media-rep kind=\"original-media\" src=\"" << escapeXml(srcUrl) << "\"/>\n";
+	out << "    </asset>\n";
+	out << "  </resources>\n";
+	out << "  <library>\n";
+	out << "    <event name=\"OBS Recording\">\n";
+	out << "      <asset-clip name=\"" << escapeXml(assetName)
+	    << "\" ref=\"r2\" offset=\"0s\" start=\"0s\" duration=\""
+	    << (static_cast<qint64>(durationFrames) * fpsDen) << "/" << fpsNum << "s\" format=\"r1\">\n";
+	for (const auto &m : fcpChapters) {
+		out << "        <chapter-marker start=\""
+		    << (static_cast<qint64>(m.first) * fpsDen) << "/" << fpsNum
+		    << "s\" duration=\"" << fpsDen << "/" << fpsNum
+		    << "s\" value=\"" << escapeXml(m.second) << "\"/>\n";
+	}
+	out << "      </asset-clip>\n";
+	out << "    </event>\n";
+	out << "  </library>\n";
+	out << "</fcpxml>\n";
 	file.close();
 
-	blog(LOG_INFO, "[StreamUP Record Chapter Manager] Closed FCP XML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
+	blog(LOG_INFO, "[StreamUP Record Chapter Manager] Wrote FCPXML chapter file: %s (%d markers)",
+	     QT_TO_UTF8(exportFCPXMLFilePath), static_cast<int>(fcpChapters.size()));
+
+	fcpChapters.clear();
 }
 
 void ChapterMarkerDock::closePremiereXMLFile()
@@ -1570,8 +1592,6 @@ void ChapterMarkerDock::onSceneChanged()
 	}
 }
 
-extern bool (*obs_frontend_recording_add_chapter_wrapper)(const char *name);
-
 void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QString &chapterSource)
 {
 	QString fullChapterName = chapterName;
@@ -1584,24 +1604,22 @@ void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QStri
 	}
 
 	if (insertChapterMarkersInVideoEnabled) {
-		if (obs_frontend_recording_add_chapter_wrapper) {
-			bool success = obs_frontend_recording_add_chapter_wrapper(QT_TO_UTF8(fullChapterName));
-			if (!success) {
-				blog(LOG_INFO,
-				     "[StreamUP Record Chapter Manager] You have selected to insert chapters into video file. You are not using a compatible file type.");
+		bool success = obs_frontend_recording_add_chapter(QT_TO_UTF8(fullChapterName));
+		if (!success) {
+			blog(LOG_INFO,
+			     "[StreamUP Record Chapter Manager] You have selected to insert chapters into video file. You are not using a compatible file type.");
 
-				if (!incompatibleFileTypeMessageShown) {
-					QMessageBox msgBox;
-					msgBox.setWindowTitle(obs_module_text("StreamUPChapterMarkerManagerError"));
-					msgBox.setIcon(QMessageBox::Warning);
-					msgBox.setText(obs_module_text("IncompatibleFileTypeError"));
-					msgBox.setInformativeText(obs_module_text("IncompatibleFileType"));
-					msgBox.setStandardButtons(QMessageBox::Ok);
-					msgBox.setDefaultButton(QMessageBox::Ok);
-					msgBox.exec();
+			if (!incompatibleFileTypeMessageShown) {
+				QMessageBox msgBox;
+				msgBox.setWindowTitle(obs_module_text("StreamUPChapterMarkerManagerError"));
+				msgBox.setIcon(QMessageBox::Warning);
+				msgBox.setText(obs_module_text("IncompatibleFileTypeError"));
+				msgBox.setInformativeText(obs_module_text("IncompatibleFileType"));
+				msgBox.setStandardButtons(QMessageBox::Ok);
+				msgBox.setDefaultButton(QMessageBox::Ok);
+				msgBox.exec();
 
-					incompatibleFileTypeMessageShown = true;
-				}
+				incompatibleFileTypeMessageShown = true;
 			}
 		}
 		auto ph = obs_get_proc_handler();

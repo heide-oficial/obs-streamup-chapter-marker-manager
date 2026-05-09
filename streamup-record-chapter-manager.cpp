@@ -424,17 +424,9 @@ static void RegisterWebsocketRequests()
 					      nullptr);
 }
 
-bool (*obs_frontend_recording_add_chapter_wrapper)(const char *name) = nullptr;
-
 bool obs_module_load()
 {
 	blog(LOG_INFO, "[StreamUP Record Chapter Manager] loaded version %s", PROJECT_VERSION);
-
-	void *handle = os_dlopen("obs-frontend-api");
-	if (handle) {
-		obs_frontend_recording_add_chapter_wrapper =
-			(bool (*)(const char *name))os_dlsym(handle, "obs_frontend_recording_add_chapter");
-	}
 
 	RegisterHotkeys();
 

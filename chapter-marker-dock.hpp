@@ -9,9 +9,11 @@
 #include <QListWidget>
 #include <QMap>
 #include <QPushButton>
+#include <QPair>
 #include <QStringList>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVector>
 
 #include "streamup-ui.hpp"
 
@@ -58,6 +60,9 @@ public:
 	QString exportFCPXMLFilePath;
 	QString exportPremiereXMLFilePath;
 	QString exportEDLFilePath;
+	QString recordingMediaPath;
+	QString recordingMediaBaseName;
+	QVector<QPair<int, QString>> fcpChapters;
 	QString defaultChapterName;
 	int edlEventNumber;
 	int fcpMarkerID;
