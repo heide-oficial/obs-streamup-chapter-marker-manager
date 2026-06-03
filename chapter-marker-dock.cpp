@@ -330,11 +330,13 @@ void ChapterMarkerDock::setupMainDockPreviousChaptersGroup(QVBoxLayout *mainLayo
 	previousChaptersLayout->setObjectName("previousChaptersLayout");
 	previousChaptersLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
 	previousChaptersList->setObjectName("previousChaptersList");
+	// Dock content stays palette()-driven on purpose: the main dock follows
+	// the user's OBS theme (native buttons, themeID icons); Catppuccin is for
+	// the StreamUP-branded dialogs only.
 	previousChaptersList->setStyleSheet(
-		"QListWidget { background: " C_CARD "; border: none; border-radius: 8px; color: " C_TEXT "; }"
-		"QListWidget::item { padding: 4px 8px; border-radius: 4px; }"
-		"QListWidget::item:hover { background: rgba(255,255,255,0.04); }"
-		"QListWidget::item:selected { background: rgba(0,118,223,0.3); color: " C_TEXT "; }");
+		"QListWidget { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; }"
+		"QListWidget::item { padding: 4px 8px; }"
+		"QListWidget::item:hover { background: palette(midlight); }");
 	previousChaptersLayout->addWidget(previousChaptersList);
 	previousChaptersGroup->setLayout(previousChaptersLayout);
 

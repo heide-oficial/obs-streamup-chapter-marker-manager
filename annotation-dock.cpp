@@ -42,10 +42,9 @@ void AnnotationDock::setupUI()
 	mainLayout->setSpacing(0);
 
 	annotationEdit->setObjectName("annotationEdit");
+	// Palette-driven on purpose: dock content follows the user's OBS theme.
 	annotationEdit->setStyleSheet(
-		"QTextEdit { background: " C_CARD "; border: none; border-radius: 8px; padding: 4px; color: " C_TEXT "; "
-		"selection-background-color: rgba(0,118,223,0.3); selection-color: " C_TEXT "; }"
-		"QTextEdit:focus { border: 2px solid " C_PRI "; outline: none; }");
+		"QTextEdit { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; padding: 4px; }");
 	mainLayout->addWidget(annotationEdit);
 	mainLayout->addSpacing(6);
 
