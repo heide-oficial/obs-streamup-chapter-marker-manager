@@ -331,9 +331,10 @@ void ChapterMarkerDock::setupMainDockPreviousChaptersGroup(QVBoxLayout *mainLayo
 	previousChaptersLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
 	previousChaptersList->setObjectName("previousChaptersList");
 	previousChaptersList->setStyleSheet(
-		"QListWidget { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; }"
-		"QListWidget::item { padding: 4px 8px; }"
-		"QListWidget::item:hover { background: palette(midlight); }");
+		"QListWidget { background: " C_CARD "; border: none; border-radius: 8px; color: " C_TEXT "; }"
+		"QListWidget::item { padding: 4px 8px; border-radius: 4px; }"
+		"QListWidget::item:hover { background: rgba(255,255,255,0.04); }"
+		"QListWidget::item:selected { background: rgba(0,118,223,0.3); color: " C_TEXT "; }");
 	previousChaptersLayout->addWidget(previousChaptersList);
 	previousChaptersGroup->setLayout(previousChaptersLayout);
 
@@ -521,7 +522,7 @@ void ChapterMarkerDock::showFeedbackMessage(const QString &message, bool isError
 //--------------------SETTINGS UI--------------------
 QDialog *ChapterMarkerDock::createSettingsUI()
 {
-	settingsDialog = new QDialog(this);
+	settingsDialog = new ShadowDialog(this);
 	DialogChrome chrome = ApplyDialogChrome(settingsDialog, obs_module_text("ChapterMarkerManagerSettings"));
 	QVBoxLayout *mainLayout = chrome.contentLayout;
 	QVBoxLayout *footerLayout = chrome.footerLayout;
@@ -844,7 +845,7 @@ void ChapterMarkerDock::onSetPresetChaptersButtonClicked()
 //--------------------PRESET CHAPTERS--------------------
 void ChapterMarkerDock::setupPresetChaptersDialog()
 {
-	presetChaptersDialog = new QDialog(this);
+	presetChaptersDialog = new ShadowDialog(this);
 	DialogChrome chrome = ApplyDialogChrome(presetChaptersDialog, obs_module_text("GeneralSettingsSetPresetHotkeys"));
 	QVBoxLayout *dialogLayout = chrome.contentLayout;
 	QVBoxLayout *footerLayout = chrome.footerLayout;
@@ -996,7 +997,7 @@ void ChapterMarkerDock::LoadPresetChapters(obs_data_t *settings)
 //--------------------IGNORED SCENES UI--------------------
 QDialog *ChapterMarkerDock::createIgnoredScenesUI()
 {
-	QDialog *dialog = new QDialog(this);
+	QDialog *dialog = new ShadowDialog(this);
 	DialogChrome chrome = ApplyDialogChrome(dialog, obs_module_text("IgnoredScenes"));
 	QVBoxLayout *mainLayout = chrome.contentLayout;
 	QVBoxLayout *footerLayout = chrome.footerLayout;
