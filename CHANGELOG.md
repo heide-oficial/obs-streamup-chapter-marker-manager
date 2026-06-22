@@ -8,6 +8,10 @@
 - Replaced the legacy FCP7 xmeml export with real FCPXML 1.13. The old format died with Final Cut Pro 7 in 2011, and modern Final Cut Pro will not import it.
 - New FCPXML export uses NTSC-safe rational time values, the real recording resolution from obs_video_info, the .fcpxml extension, and the proper FCPXML 1.13 chapter-marker structure. Verified against Apple's FCPXML 1.13 DTD.
 - Markers are now buffered during recording and flushed when the recording stops, since FCPXML needs the asset duration up front.
+- Fixed FCPXML marker time drift on fractional frame rates. Marker frames were computed from the rounded integer fps (30 for 29.97) but rendered back as the exact rational, drifting ~0.1% and growing with the timestamp. Frames are now derived from the actual obs_video_info rational, so input and output agree and integer rates stay exact.
+- Refreshed the dialog UI: added elevation shadows, fill-only cards, and scoped separators for clearer visual hierarchy.
+- Switched the settings palette to native OBS theming so dialogs and dock content follow the active OBS theme.
+- Dialogs now scale with the operating system text-size setting for better readability on high-DPI and accessibility setups.
 
 ## v1.3.0 (12 Apr '26)
 **Patch Focus:** StreamUP UI design system & settings redesign

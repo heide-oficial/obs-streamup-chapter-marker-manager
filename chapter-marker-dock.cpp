@@ -1278,8 +1278,18 @@ void ChapterMarkerDock::writeChapterToFCPXMLFile(const QString &chapterName, con
 
 	QTime time = QTime::fromString(timestamp, "HH:mm:ss");
 	int totalSeconds = time.hour() * 3600 + time.minute() * 60 + time.second();
-	int fps = getFrameRate();
-	int frameNumber = totalSeconds * fps;
+
+	// Derive the marker frame from the *actual* rational fps so it stays
+	// consistent with how closeFCPXMLFile renders the time back out as
+	// frameNumber * fpsDen / fpsNum. Using the rounded integer fps here
+	// (30 for 29.97) drifts ~0.1% on true NTSC rates, growing with the
+	// timestamp. Integer rates (30/60) stay exact.
+	obs_video_info ovi = {};
+	bool oviOk = obs_get_video_info(&ovi) && ovi.fps_num > 0 && ovi.fps_den > 0;
+	uint32_t fpsNum = oviOk ? ovi.fps_num : 30000;
+	uint32_t fpsDen = oviOk ? ovi.fps_den : 1000;
+	int frameNumber = static_cast<int>(
+		round(static_cast<double>(totalSeconds) * static_cast<double>(fpsNum) / static_cast<double>(fpsDen)));
 
 	QString fullChapterName = appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
 	fcpChapters.append(qMakePair(frameNumber, fullChapterName));
