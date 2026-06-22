@@ -219,7 +219,7 @@ void ChapterMarkerDock::setupMainDockUI()
 	this->setObjectName("chapterMarkerDock");
 
 	// Add padding to the QFrame itself
-	this->setContentsMargins(8, 8, 8, 8);
+	this->setContentsMargins(S(8), S(8), S(8), S(8));
 
 	QVBoxLayout *mainDockLayout = new QVBoxLayout(this);
 	mainDockLayout->setObjectName("chapterMarkerDockLayout");
@@ -229,13 +229,13 @@ void ChapterMarkerDock::setupMainDockUI()
 	mainDockLayout->setSpacing(0);
 
 	setupMainDockCurrentChapterLayout(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockChapterInput(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockSaveButtonLayout(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockFeedbackLabel(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockPreviousChaptersGroup(mainDockLayout);
 
 	setLayout(mainDockLayout);
@@ -284,25 +284,25 @@ void ChapterMarkerDock::setupMainDockSaveButtonLayout(QVBoxLayout *mainLayout)
 	settingsButton->setToolTip(obs_module_text("SettingsTooltip"));
 	settingsButton->setProperty("themeID", "configIconSmall");
 	settingsButton->setProperty("class", "icon-gear");
-	settingsButton->setMinimumSize(Constants::BUTTON_MIN_WIDTH, Constants::BUTTON_MIN_HEIGHT);
-	settingsButton->setMaximumSize(Constants::BUTTON_MAX_WIDTH, Constants::BUTTON_MAX_HEIGHT);
-	settingsButton->setIconSize(QSize(Constants::BUTTON_ICON_SIZE, Constants::BUTTON_ICON_SIZE));
+	settingsButton->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
+	settingsButton->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
+	settingsButton->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
 	settingsButton->style()->unpolish(settingsButton);
 	settingsButton->style()->polish(settingsButton);
 
 	// Configure the annotation button
 	annotationButton->setObjectName("annotationButton");
 	annotationButton->setIcon(QIcon(":images/annotation-icon.svg"));
-	annotationButton->setMinimumSize(Constants::BUTTON_MIN_WIDTH, Constants::BUTTON_MIN_HEIGHT);
-	annotationButton->setMaximumSize(Constants::BUTTON_MAX_WIDTH, Constants::BUTTON_MAX_HEIGHT);
-	annotationButton->setIconSize(QSize(Constants::BUTTON_ICON_SIZE, Constants::BUTTON_ICON_SIZE));
+	annotationButton->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
+	annotationButton->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
+	annotationButton->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
 	annotationButton->setToolTip(obs_module_text("AnnotationButtonTooltip"));
 
 	// Add the Save Chapter Marker button and a stretch to push the settings button to the right
 	saveButtonLayout->addWidget(saveChapterMarkerButton);
 	saveButtonLayout->addStretch();
 	saveButtonLayout->addWidget(annotationButton);
-	saveButtonLayout->addSpacing(4);
+	saveButtonLayout->addSpacing(S(4));
 	saveButtonLayout->addWidget(settingsButton);
 
 	saveButtonLayout->setAlignment(saveChapterMarkerButton, Qt::AlignLeft);
@@ -333,10 +333,10 @@ void ChapterMarkerDock::setupMainDockPreviousChaptersGroup(QVBoxLayout *mainLayo
 	// Dock content stays palette()-driven on purpose: the main dock follows
 	// the user's OBS theme (native buttons, themeID icons); Catppuccin is for
 	// the StreamUP-branded dialogs only.
-	previousChaptersList->setStyleSheet(
+	previousChaptersList->setStyleSheet(scale_qss(
 		"QListWidget { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; }"
 		"QListWidget::item { padding: 4px 8px; }"
-		"QListWidget::item:hover { background: palette(midlight); }");
+		"QListWidget::item:hover { background: palette(midlight); }"));
 	previousChaptersLayout->addWidget(previousChaptersList);
 	previousChaptersGroup->setLayout(previousChaptersLayout);
 
@@ -531,12 +531,12 @@ QDialog *ChapterMarkerDock::createSettingsUI()
 
 	// Two-column layout
 	QHBoxLayout *columnsLayout = new QHBoxLayout();
-	columnsLayout->setSpacing(20);
+	columnsLayout->setSpacing(S(20));
 
 	QVBoxLayout *leftCol = new QVBoxLayout();
-	leftCol->setSpacing(14);
+	leftCol->setSpacing(S(14));
 	QVBoxLayout *rightCol = new QVBoxLayout();
-	rightCol->setSpacing(14);
+	rightCol->setSpacing(S(14));
 
 	setupSettingsGeneralGroup(leftCol);
 	setupSettingsExportGroup(rightCol);
@@ -590,7 +590,7 @@ QDialog *ChapterMarkerDock::createSettingsUI()
 	connect(okBtn, &QPushButton::clicked, this, &ChapterMarkerDock::saveSettingsAndCloseDialog);
 	connect(cancelBtn, &QPushButton::clicked, settingsDialog, &QDialog::reject);
 
-	settingsDialog->setMinimumWidth(600);
+	settingsDialog->setMinimumWidth(S(600));
 	settingsDialog->adjustSize();
 
 	return settingsDialog;
@@ -610,7 +610,7 @@ void ChapterMarkerDock::setupSettingsGeneralGroup(QVBoxLayout *mainLayout)
 	defaultChapterNameEdit->setPlaceholderText(obs_module_text("GeneralSettingsDefaultChapterPlaceholder"));
 	defaultChapterNameEdit->setToolTip(obs_module_text("DefaultChapterNameTooltip"));
 	defaultChapterNameEdit->setText(defaultChapterName);
-	defaultChapterNameEdit->setMinimumWidth(200);
+	defaultChapterNameEdit->setMinimumWidth(S(200));
 	defaultChapterNameEdit->setStyleSheet(GetInputStyle());
 
 	// Create a horizontal layout to place the label and text box side by side
@@ -702,10 +702,10 @@ void ChapterMarkerDock::setupSettingsExportGroup(QVBoxLayout *mainLayout)
 	premiereXmlCheckboxLayout = new QHBoxLayout;
 	edlCheckboxLayout = new QHBoxLayout;
 	// Add a spacer to the layouts to create the indent
-	textCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
-	fcpXmlCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
-	premiereXmlCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
-	edlCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
+	textCheckboxLayout->addSpacing(S(Constants::INDENT_SPACING));
+	fcpXmlCheckboxLayout->addSpacing(S(Constants::INDENT_SPACING));
+	premiereXmlCheckboxLayout->addSpacing(S(Constants::INDENT_SPACING));
+	edlCheckboxLayout->addSpacing(S(Constants::INDENT_SPACING));
 	// Add the checkboxes to the layouts
 	textCheckboxLayout->addWidget(exportChaptersToTextCheckbox);
 	fcpXmlCheckboxLayout->addWidget(exportChaptersToFCPXMLCheckbox);
@@ -1017,7 +1017,7 @@ QDialog *ChapterMarkerDock::createIgnoredScenesUI()
 
 	// Adjust the width of the list widget to fit the contents
 	int longestNameWidth = ignoredScenesListWidget->sizeHintForColumn(0);
-	ignoredScenesListWidget->setFixedWidth(longestNameWidth + 30); // Add some padding
+	ignoredScenesListWidget->setFixedWidth(longestNameWidth + S(30)); // Add some padding
 
 	// Calculate the height for 10 entries
 	int rowHeight = ignoredScenesListWidget->sizeHintForRow(0);
@@ -1716,9 +1716,9 @@ void ChapterMarkerDock::applyThemeIDToButton(QPushButton *button, const QString 
 	}
 
 	button->setProperty("themeID", themeID);
-	button->setMinimumSize(Constants::BUTTON_MIN_WIDTH, Constants::BUTTON_MIN_HEIGHT);
-	button->setMaximumSize(Constants::BUTTON_MAX_WIDTH, Constants::BUTTON_MAX_HEIGHT);
-	button->setIconSize(QSize(Constants::BUTTON_ICON_SIZE, Constants::BUTTON_ICON_SIZE));
+	button->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
+	button->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
+	button->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
 	button->style()->unpolish(button);
 	button->style()->polish(button);
 }
