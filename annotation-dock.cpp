@@ -8,6 +8,8 @@
 
 #define QT_TO_UTF8(str) str.toUtf8().constData()
 
+using namespace StreamUP::UIStyles; // S, scale_qss (dock keeps native theming, uses scale helpers)
+
 AnnotationDock::AnnotationDock(ChapterMarkerDock *chapterDock, QWidget *parent)
 	: QFrame(parent),
 	  annotationEdit(new QTextEdit(this)),
