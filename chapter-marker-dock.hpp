@@ -3,17 +3,19 @@
 #include <obs-frontend-api.h>
 #include <QDialog>
 #include <QFrame>
-#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMap>
 #include <QPushButton>
+#include <QPair>
 #include <QStringList>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVector>
 
-#include "streamup-ui.hpp"
+#include <streamup/ui/window-chrome.hpp> // ShadowDialog, applyChrome, RoundedContainer, DragFilter
+#include <streamup/ui/switch-button.hpp> // SwitchButton, CreateStyledSwitch
 
 // Forward declaration of AnnotationDock
 class AnnotationDock;
@@ -58,6 +60,9 @@ public:
 	QString exportFCPXMLFilePath;
 	QString exportPremiereXMLFilePath;
 	QString exportEDLFilePath;
+	QString recordingMediaPath;
+	QString recordingMediaBaseName;
+	QVector<QPair<int, QString>> fcpChapters;
 	QString defaultChapterName;
 	int edlEventNumber;
 	int fcpMarkerID;
@@ -126,13 +131,13 @@ private:
 	void setupSettingsAutoChapterGroup(QVBoxLayout *mainLayout);
 	void saveIgnoredScenes();
 	void populateIgnoredScenesListWidget();
-	SwitchWidget *exportChaptersToFileCheckbox;
-	SwitchWidget *exportChaptersToTextCheckbox;
-	SwitchWidget *exportChaptersToFCPXMLCheckbox;
-	SwitchWidget *exportChaptersToPremiereXMLCheckbox;
-	SwitchWidget *exportChaptersToEDLCheckbox;
-	QGroupBox *exportSettingsGroup;
-	SwitchWidget *insertChapterMarkersCheckbox;
+	StreamUP::UIStyles::SwitchButton *exportChaptersToFileCheckbox;
+	StreamUP::UIStyles::SwitchButton *exportChaptersToTextCheckbox;
+	StreamUP::UIStyles::SwitchButton *exportChaptersToFCPXMLCheckbox;
+	StreamUP::UIStyles::SwitchButton *exportChaptersToPremiereXMLCheckbox;
+	StreamUP::UIStyles::SwitchButton *exportChaptersToEDLCheckbox;
+	QWidget *exportSettingsGroup;
+	StreamUP::UIStyles::SwitchButton *insertChapterMarkersCheckbox;
 	void setupSettingsExportGroup(QVBoxLayout *mainLayout);
 	void onExportChaptersToFileToggled(bool checked);
 	void onChapterOnSceneChangeToggled(bool checked);
@@ -143,7 +148,7 @@ private:
 
 	QDialog *createIgnoredScenesUI();
 	QDialog *ignoredScenesDialog;
-	QGroupBox *sceneChangeSettingsGroup;
+	QWidget *sceneChangeSettingsGroup;
 	QLineEdit *chapterNameInput;
 
 	QPushButton *settingsButton;
@@ -156,25 +161,21 @@ private:
 	QLabel *feedbackLabel;
 	QTimer feedbackTimer;
 	QListWidget *previousChaptersList;
-	QGroupBox *previousChaptersGroup;
+	QWidget *previousChaptersGroup;
 
 	QPushButton *saveChapterMarkerButton;
 
 	QLineEdit *defaultChapterNameEdit;
-	SwitchWidget *showPreviousChaptersCheckbox;
-	SwitchWidget *fullChapterHistoryCheckbox;
-	SwitchWidget *addChapterSourceCheckbox;
-	SwitchWidget *chapterOnSceneChangeCheckbox;
+	StreamUP::UIStyles::SwitchButton *showPreviousChaptersCheckbox;
+	StreamUP::UIStyles::SwitchButton *fullChapterHistoryCheckbox;
+	StreamUP::UIStyles::SwitchButton *addChapterSourceCheckbox;
+	StreamUP::UIStyles::SwitchButton *chapterOnSceneChangeCheckbox;
 	QListWidget *ignoredScenesListWidget;
-	QGroupBox *ignoredScenesGroup;
 
 	QStringList chapters;
 	QStringList timestamps;
 
-	QHBoxLayout *textCheckboxLayout;
-	QHBoxLayout *fcpXmlCheckboxLayout;
-	QHBoxLayout *premiereXmlCheckboxLayout;
-	QHBoxLayout *edlCheckboxLayout;
+	QWidget *exportSubWidget; // indented sub-options under "Export to file" (one aligned column)
 	QVBoxLayout *exportSettingsLayout;
 	bool incompatibleFileTypeMessageShown = false;
 };

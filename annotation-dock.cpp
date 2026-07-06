@@ -8,6 +8,8 @@
 
 #define QT_TO_UTF8(str) str.toUtf8().constData()
 
+using namespace StreamUP::UIStyles; // S, scale_qss (dock keeps native theming, uses scale helpers)
+
 AnnotationDock::AnnotationDock(ChapterMarkerDock *chapterDock, QWidget *parent)
 	: QFrame(parent),
 	  annotationEdit(new QTextEdit(this)),
@@ -34,7 +36,7 @@ void AnnotationDock::setupUI()
 	this->setObjectName("annotationDock");
 
 	// Add padding to the QFrame itself (no bottom padding)
-	this->setContentsMargins(8, 8, 8, 0);
+	this->setContentsMargins(S(8), S(8), S(8), 0);
 
 	QVBoxLayout *mainLayout = new QVBoxLayout(this);
 	mainLayout->setObjectName("annotationDockLayout");
@@ -42,10 +44,11 @@ void AnnotationDock::setupUI()
 	mainLayout->setSpacing(0);
 
 	annotationEdit->setObjectName("annotationEdit");
-	annotationEdit->setStyleSheet(
-		"QTextEdit { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; padding: 4px; }");
+	// Palette-driven on purpose: dock content follows the user's OBS theme.
+	annotationEdit->setStyleSheet(scale_qss(
+		"QTextEdit { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; padding: 4px; }"));
 	mainLayout->addWidget(annotationEdit);
-	mainLayout->addSpacing(6);
+	mainLayout->addSpacing(S(6));
 
 	saveAnnotationButton->setObjectName("saveAnnotationButton");
 	saveAnnotationButton->setToolTip(obs_module_text("SaveAnnotationButtonToolTip"));

@@ -2,7 +2,13 @@
 #include "annotation-dock.hpp"
 #include "constants.hpp"
 #include "streamup-record-chapter-manager.hpp"
-#include "streamup-ui.hpp"
+#include <streamup/ui/window-chrome.hpp> // ShadowDialog, applyChrome, RoundedContainer, DragFilter
+#include <streamup/ui/switch-button.hpp> // SwitchButton, CreateStyledSwitch
+#include <streamup/ui/pill-button.hpp>   // PillButton
+#include <streamup/ui/mac-inputs.hpp>    // MacComboBox, MacSpinBox
+#include <streamup/ui/labels.hpp>        // labelStyle, dimLabelStyle, formLabelStyle, sectionHeader
+#include <streamup/ui/dialogs.hpp>       // confirm, prompt, info
+#include <streamup/ui/ui-scrollbar.hpp>  // useScrollBars (capsule scrollbars)
 #include "version.h"
 #include <obs-data.h>
 #include <obs-frontend-api.h>
@@ -10,7 +16,6 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDesktopServices>
-#include <QDialogButtonBox>
 #include <QDir>
 #include <QDockWidget>
 #include <QFile>
@@ -20,10 +25,20 @@
 #include <QListWidget>
 #include <QMainWindow>
 #include <QMutex>
-#include <QMessageBox>
 #include <QStyle>
 #include <QTextStream>
 #include <QVBoxLayout>
+
+using namespace StreamUP::UIStyles;
+
+// Labeled switch row — replaces the old SwitchWidget. The canonical SwitchButton
+// renders its own inline label, so this is just construct + setText.
+static SwitchButton *makeSwitch(const QString &text, QWidget *parent = nullptr)
+{
+	auto *s = new SwitchButton(parent);
+	s->setText(text);
+	return s;
+}
 
 // WARNING: QT_TO_UTF8 returns a pointer to a temporary QByteArray.
 // Only safe when used immediately (e.g., passed directly to a function).
@@ -128,13 +143,9 @@ ChapterMarkerDock::ChapterMarkerDock(QWidget *parent)
 	  addChapterSourceCheckbox(nullptr),
 	  chapterOnSceneChangeCheckbox(nullptr),
 	  ignoredScenesListWidget(nullptr),
-	  ignoredScenesGroup(nullptr),
 	  chapters(),
 	  timestamps(),
-	  textCheckboxLayout(nullptr),
-	  fcpXmlCheckboxLayout(nullptr),
-	  premiereXmlCheckboxLayout(nullptr),
-	  edlCheckboxLayout(nullptr),
+	  exportSubWidget(nullptr),
 	  exportSettingsLayout(nullptr)
 {
 	// UI Setup
@@ -219,7 +230,7 @@ void ChapterMarkerDock::setupMainDockUI()
 	this->setObjectName("chapterMarkerDock");
 
 	// Add padding to the QFrame itself
-	this->setContentsMargins(8, 8, 8, 8);
+	this->setContentsMargins(S(8), S(8), S(8), S(8));
 
 	QVBoxLayout *mainDockLayout = new QVBoxLayout(this);
 	mainDockLayout->setObjectName("chapterMarkerDockLayout");
@@ -229,13 +240,13 @@ void ChapterMarkerDock::setupMainDockUI()
 	mainDockLayout->setSpacing(0);
 
 	setupMainDockCurrentChapterLayout(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockChapterInput(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockSaveButtonLayout(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockFeedbackLabel(mainDockLayout);
-	mainDockLayout->addSpacing(6);
+	mainDockLayout->addSpacing(S(6));
 	setupMainDockPreviousChaptersGroup(mainDockLayout);
 
 	setLayout(mainDockLayout);
@@ -284,25 +295,25 @@ void ChapterMarkerDock::setupMainDockSaveButtonLayout(QVBoxLayout *mainLayout)
 	settingsButton->setToolTip(obs_module_text("SettingsTooltip"));
 	settingsButton->setProperty("themeID", "configIconSmall");
 	settingsButton->setProperty("class", "icon-gear");
-	settingsButton->setMinimumSize(Constants::BUTTON_MIN_WIDTH, Constants::BUTTON_MIN_HEIGHT);
-	settingsButton->setMaximumSize(Constants::BUTTON_MAX_WIDTH, Constants::BUTTON_MAX_HEIGHT);
-	settingsButton->setIconSize(QSize(Constants::BUTTON_ICON_SIZE, Constants::BUTTON_ICON_SIZE));
+	settingsButton->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
+	settingsButton->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
+	settingsButton->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
 	settingsButton->style()->unpolish(settingsButton);
 	settingsButton->style()->polish(settingsButton);
 
 	// Configure the annotation button
 	annotationButton->setObjectName("annotationButton");
 	annotationButton->setIcon(QIcon(":images/annotation-icon.svg"));
-	annotationButton->setMinimumSize(Constants::BUTTON_MIN_WIDTH, Constants::BUTTON_MIN_HEIGHT);
-	annotationButton->setMaximumSize(Constants::BUTTON_MAX_WIDTH, Constants::BUTTON_MAX_HEIGHT);
-	annotationButton->setIconSize(QSize(Constants::BUTTON_ICON_SIZE, Constants::BUTTON_ICON_SIZE));
+	annotationButton->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
+	annotationButton->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
+	annotationButton->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
 	annotationButton->setToolTip(obs_module_text("AnnotationButtonTooltip"));
 
 	// Add the Save Chapter Marker button and a stretch to push the settings button to the right
 	saveButtonLayout->addWidget(saveChapterMarkerButton);
 	saveButtonLayout->addStretch();
 	saveButtonLayout->addWidget(annotationButton);
-	saveButtonLayout->addSpacing(4);
+	saveButtonLayout->addSpacing(S(4));
 	saveButtonLayout->addWidget(settingsButton);
 
 	saveButtonLayout->setAlignment(saveChapterMarkerButton, Qt::AlignLeft);
@@ -330,10 +341,13 @@ void ChapterMarkerDock::setupMainDockPreviousChaptersGroup(QVBoxLayout *mainLayo
 	previousChaptersLayout->setObjectName("previousChaptersLayout");
 	previousChaptersLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
 	previousChaptersList->setObjectName("previousChaptersList");
-	previousChaptersList->setStyleSheet(
+	// Dock content stays palette()-driven on purpose: the main dock follows
+	// the user's OBS theme (native buttons, themeID icons); Catppuccin is for
+	// the StreamUP-branded dialogs only.
+	previousChaptersList->setStyleSheet(scale_qss(
 		"QListWidget { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; }"
 		"QListWidget::item { padding: 4px 8px; }"
-		"QListWidget::item:hover { background: palette(midlight); }");
+		"QListWidget::item:hover { background: palette(midlight); }"));
 	previousChaptersLayout->addWidget(previousChaptersList);
 	previousChaptersGroup->setLayout(previousChaptersLayout);
 
@@ -521,19 +535,24 @@ void ChapterMarkerDock::showFeedbackMessage(const QString &message, bool isError
 //--------------------SETTINGS UI--------------------
 QDialog *ChapterMarkerDock::createSettingsUI()
 {
-	settingsDialog = new QDialog(this);
-	DialogChrome chrome = ApplyDialogChrome(settingsDialog, obs_module_text("ChapterMarkerManagerSettings"));
-	QVBoxLayout *mainLayout = chrome.contentLayout;
-	QVBoxLayout *footerLayout = chrome.footerLayout;
+	settingsDialog = new ShadowDialog(this);
+	// brandFooter=true → SoT brand line in the footer AND a taskbar button /
+	// hover-thumbnail (WS_EX_APPWINDOW) for this primary window.
+	WindowShell chrome = applyChrome(static_cast<ShadowDialog *>(settingsDialog),
+					obs_module_text("ChapterMarkerManagerSettings"),
+					QString("v%1").arg(PROJECT_VERSION), /*brandFooter=*/true,
+					"StreamUP Chapter Marker Manager");
+	QVBoxLayout *mainLayout = chrome.content;
+	mainLayout->setContentsMargins(S(20), S(16), S(20), S(16)); // applyChrome content has no padding
 
 	// Two-column layout
 	QHBoxLayout *columnsLayout = new QHBoxLayout();
-	columnsLayout->setSpacing(20);
+	columnsLayout->setSpacing(S(20));
 
 	QVBoxLayout *leftCol = new QVBoxLayout();
-	leftCol->setSpacing(14);
+	leftCol->setSpacing(S(14));
 	QVBoxLayout *rightCol = new QVBoxLayout();
-	rightCol->setSpacing(14);
+	rightCol->setSpacing(S(14));
 
 	setupSettingsGeneralGroup(leftCol);
 	setupSettingsExportGroup(rightCol);
@@ -546,48 +565,17 @@ QDialog *ChapterMarkerDock::createSettingsUI()
 	columnsLayout->addLayout(rightCol, 1);
 	mainLayout->addLayout(columnsLayout);
 
-	// Create the label with HTML formatted text
-	QString infoText =
-		QString("<br>"
-			"<a href='https://streamup.tips/product/obs-chapter-marker-manager'>StreamUP Chapter Marker Manager</a> • version %1"
-			"<br>"
-			"by <a href='https://doras.to/Andi'>Andi Stone (Andilippi)</a>")
-			.arg(PROJECT_VERSION);
-
-	QLabel *infoLabel = new QLabel(infoText, settingsDialog);
-	infoLabel->setTextFormat(Qt::RichText);
-	infoLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-	infoLabel->setOpenExternalLinks(true);
-	infoLabel->setAlignment(Qt::AlignCenter);
-	infoLabel->setStyleSheet(GetDimLabelStyle() + " a { color: " C_TAG "; }");
-	mainLayout->addWidget(infoLabel);
-
-	// Create the 'Support my plugins' button
-	QPushButton *supportButton = CreateStyledButton(QString::fromUtf8("❤️ Support My Plugins ❤️"), "primary");
-	connect(supportButton, &QPushButton::clicked, this, []() { QDesktopServices::openUrl(QUrl("https://doras.to/Andi")); });
-
-	// Create a layout for the label and button
-	QVBoxLayout *infoLayout = new QVBoxLayout();
-	infoLayout->addWidget(infoLabel);
-	infoLayout->addWidget(supportButton);
-	infoLayout->setAlignment(Qt::AlignCenter);
-
-	// Add the info layout to the main layout
-	mainLayout->addLayout(infoLayout);
-
-	// Footer buttons
-	QHBoxLayout *buttonRow = new QHBoxLayout();
-	buttonRow->addStretch();
-	QPushButton *okBtn = CreateStyledButton("OK", "primary");
-	QPushButton *cancelBtn = CreateStyledButton("Cancel", "secondary");
-	buttonRow->addWidget(cancelBtn);
-	buttonRow->addWidget(okBtn);
-	footerLayout->addLayout(buttonRow);
+	// Action buttons in the footer's right-anchored slot, inline with the brand
+	// line. Cancel = outline.
+	QPushButton *okBtn = new PillButton("Save", "primary");
+	QPushButton *cancelBtn = new PillButton("Cancel", "outline");
+	chrome.footerButtons->addWidget(cancelBtn);
+	chrome.footerButtons->addWidget(okBtn);
 
 	connect(okBtn, &QPushButton::clicked, this, &ChapterMarkerDock::saveSettingsAndCloseDialog);
 	connect(cancelBtn, &QPushButton::clicked, settingsDialog, &QDialog::reject);
 
-	settingsDialog->setMinimumWidth(600);
+	settingsDialog->setMinimumWidth(S(600));
 	settingsDialog->adjustSize();
 
 	return settingsDialog;
@@ -595,20 +583,20 @@ QDialog *ChapterMarkerDock::createSettingsUI()
 
 void ChapterMarkerDock::setupSettingsGeneralGroup(QVBoxLayout *mainLayout)
 {
-	QGroupBox *generalSettingsGroup = new QGroupBox(obs_module_text("GeneralSettings"), settingsDialog);
-	generalSettingsGroup->setStyleSheet(GetGroupBoxStyle());
+	QWidget *generalSettingsGroup = new QWidget(settingsDialog);
 	QVBoxLayout *generalSettingsLayout = new QVBoxLayout(generalSettingsGroup);
+	generalSettingsLayout->addWidget(sectionHeader(obs_module_text("GeneralSettings")));
 
 	QLabel *defaultChapterNameLabel = new QLabel(obs_module_text("GeneralSettingsDefaultChapterName"), generalSettingsGroup);
 	defaultChapterNameLabel->setToolTip(obs_module_text("DefaultChapterNameTooltip"));
-	defaultChapterNameLabel->setStyleSheet(GetLabelStyle());
+	defaultChapterNameLabel->setStyleSheet(labelStyle());
 
 	defaultChapterNameEdit = new QLineEdit(generalSettingsGroup);
 	defaultChapterNameEdit->setPlaceholderText(obs_module_text("GeneralSettingsDefaultChapterPlaceholder"));
 	defaultChapterNameEdit->setToolTip(obs_module_text("DefaultChapterNameTooltip"));
 	defaultChapterNameEdit->setText(defaultChapterName);
-	defaultChapterNameEdit->setMinimumWidth(200);
-	defaultChapterNameEdit->setStyleSheet(GetInputStyle());
+	defaultChapterNameEdit->setMinimumWidth(S(200));
+	defaultChapterNameEdit->setStyleSheet(lineEditStyle());
 
 	// Create a horizontal layout to place the label and text box side by side
 	QHBoxLayout *chapterNameLayout = new QHBoxLayout;
@@ -618,30 +606,30 @@ void ChapterMarkerDock::setupSettingsGeneralGroup(QVBoxLayout *mainLayout)
 	// Add the horizontal layout to the general settings layout
 	generalSettingsLayout->addLayout(chapterNameLayout);
 
-	SwitchWidget *useIncrementalChapterNamesSwitch =
-		new SwitchWidget(obs_module_text("UseIncrementalChapterNames"), generalSettingsGroup);
+	SwitchButton *useIncrementalChapterNamesSwitch =
+		makeSwitch(obs_module_text("UseIncrementalChapterNames"), generalSettingsGroup);
 	useIncrementalChapterNamesSwitch->setToolTip(obs_module_text("UseIncrementalChapterNamesTooltip"));
 	generalSettingsLayout->addWidget(useIncrementalChapterNamesSwitch);
 	useIncrementalChapterNamesSwitch->setChecked(useIncrementalChapterNames);
-	connect(useIncrementalChapterNamesSwitch->switchBtn, &SwitchButton::toggled, this,
+	connect(useIncrementalChapterNamesSwitch, &SwitchButton::toggled, this,
 		[this](bool checked) { useIncrementalChapterNames = checked; });
 
-	showPreviousChaptersCheckbox = new SwitchWidget(obs_module_text("GeneralSettingsShowChapterHistory"), generalSettingsGroup);
+	showPreviousChaptersCheckbox = makeSwitch(obs_module_text("GeneralSettingsShowChapterHistory"), generalSettingsGroup);
 	showPreviousChaptersCheckbox->setToolTip(obs_module_text("PreviousChaptersTooltip"));
 	generalSettingsLayout->addWidget(showPreviousChaptersCheckbox);
 	showPreviousChaptersCheckbox->setChecked(showPreviousChaptersEnabled);
 
-	fullChapterHistoryCheckbox = new SwitchWidget(obs_module_text("GeneralSettingsFullChapterHistory"), generalSettingsGroup);
+	fullChapterHistoryCheckbox = makeSwitch(obs_module_text("GeneralSettingsFullChapterHistory"), generalSettingsGroup);
 	fullChapterHistoryCheckbox->setToolTip(obs_module_text("FullChapterHistoryTooltip"));
 	generalSettingsLayout->addWidget(fullChapterHistoryCheckbox);
 	fullChapterHistoryCheckbox->setChecked(fullChapterHistoryEnabled);
 
-	addChapterSourceCheckbox = new SwitchWidget(obs_module_text("GeneralSettingsAddChapterSource"), generalSettingsGroup);
+	addChapterSourceCheckbox = makeSwitch(obs_module_text("GeneralSettingsAddChapterSource"), generalSettingsGroup);
 	addChapterSourceCheckbox->setToolTip(obs_module_text("GeneralSettingsAddChapterSourceTooltip"));
 	generalSettingsLayout->addWidget(addChapterSourceCheckbox);
 	addChapterSourceCheckbox->setChecked(addChapterSourceEnabled);
 
-	setPresetChaptersButton = CreateStyledButton(obs_module_text("GeneralSettingsSetPresetHotkeys"), "primary-outline");
+	setPresetChaptersButton = new PillButton(obs_module_text("GeneralSettingsSetPresetHotkeys"), "outline");
 	setPresetChaptersButton->setToolTip(obs_module_text("GeneralSettingsSetPresetHotkeysTooltip"));
 	connect(setPresetChaptersButton, &QPushButton::clicked, this, &ChapterMarkerDock::onSetPresetChaptersButtonClicked);
 	generalSettingsLayout->addWidget(setPresetChaptersButton);
@@ -657,26 +645,26 @@ void ChapterMarkerDock::setupSettingsGeneralGroup(QVBoxLayout *mainLayout)
 
 void ChapterMarkerDock::setupSettingsExportGroup(QVBoxLayout *mainLayout)
 {
-	exportSettingsGroup = new QGroupBox(obs_module_text("Export"));
-	exportSettingsGroup->setStyleSheet(GetGroupBoxStyle());
+	exportSettingsGroup = new QWidget();
 	exportSettingsLayout = new QVBoxLayout(exportSettingsGroup);
+	exportSettingsLayout->addWidget(sectionHeader(obs_module_text("Export")));
 
 	// Insert chapter markers into video file checkbox
-	insertChapterMarkersCheckbox = new SwitchWidget(obs_module_text("ExportSettingsInsertIntoFile"), exportSettingsGroup);
+	insertChapterMarkersCheckbox = makeSwitch(obs_module_text("ExportSettingsInsertIntoFile"), exportSettingsGroup);
 	insertChapterMarkersCheckbox->setToolTip(obs_module_text("ExportSettingsInsertIntoFileTooltip"));
 	exportSettingsLayout->addWidget(insertChapterMarkersCheckbox);
 	insertChapterMarkersCheckbox->setChecked(insertChapterMarkersInVideoEnabled);
 
 	// Create check boxes
-	exportChaptersToFileCheckbox = new SwitchWidget(obs_module_text("ExportSettingsExportToFile"), exportSettingsGroup);
+	exportChaptersToFileCheckbox = makeSwitch(obs_module_text("ExportSettingsExportToFile"), exportSettingsGroup);
 	exportChaptersToFileCheckbox->setToolTip(obs_module_text("ExportSettingsExportToFileTooltip"));
-	exportChaptersToTextCheckbox = new SwitchWidget(obs_module_text("ExportSettingsExportToText"), exportSettingsGroup);
+	exportChaptersToTextCheckbox = makeSwitch(obs_module_text("ExportSettingsExportToText"), exportSettingsGroup);
 	exportChaptersToTextCheckbox->setToolTip(obs_module_text("ExportSettingsExportToTextTooltip"));
-	exportChaptersToFCPXMLCheckbox = new SwitchWidget(obs_module_text("ExportSettingsExportToFCPXml"), exportSettingsGroup);
+	exportChaptersToFCPXMLCheckbox = makeSwitch(obs_module_text("ExportSettingsExportToFCPXml"), exportSettingsGroup);
 	exportChaptersToFCPXMLCheckbox->setToolTip(obs_module_text("ExportSettingsExportToFCPXmlTooltip"));
-	exportChaptersToPremiereXMLCheckbox = new SwitchWidget(obs_module_text("ExportSettingsExportToPremiereXml"), exportSettingsGroup);
+	exportChaptersToPremiereXMLCheckbox = makeSwitch(obs_module_text("ExportSettingsExportToPremiereXml"), exportSettingsGroup);
 	exportChaptersToPremiereXMLCheckbox->setToolTip(obs_module_text("ExportSettingsExportToPremiereXmlTooltip"));
-	exportChaptersToEDLCheckbox = new SwitchWidget(obs_module_text("ExportSettingsExportToEDL"), exportSettingsGroup);
+	exportChaptersToEDLCheckbox = makeSwitch(obs_module_text("ExportSettingsExportToEDL"), exportSettingsGroup);
 	exportChaptersToEDLCheckbox->setToolTip(obs_module_text("ExportSettingsExportToEDLTooltip"));
 
 	// Set check boxes visually
@@ -685,42 +673,23 @@ void ChapterMarkerDock::setupSettingsExportGroup(QVBoxLayout *mainLayout)
 	exportChaptersToFCPXMLCheckbox->setChecked(exportChaptersToFCPXMLEnabled);
 	exportChaptersToPremiereXMLCheckbox->setChecked(exportChaptersToPremiereXMLEnabled);
 	exportChaptersToEDLCheckbox->setChecked(exportChaptersToEDLEnabled);
-	exportChaptersToTextCheckbox->setVisible(exportChaptersToFileEnabled);
-	exportChaptersToFCPXMLCheckbox->setVisible(exportChaptersToFileEnabled);
-	exportChaptersToPremiereXMLCheckbox->setVisible(exportChaptersToFileEnabled);
-	exportChaptersToEDLCheckbox->setVisible(exportChaptersToFileEnabled);
-
-	connect(exportChaptersToFileCheckbox->switchBtn, &SwitchButton::toggled, this, &ChapterMarkerDock::onExportChaptersToFileToggled);
+	connect(exportChaptersToFileCheckbox, &SwitchButton::toggled, this, &ChapterMarkerDock::onExportChaptersToFileToggled);
 
 	exportSettingsLayout->addWidget(exportChaptersToFileCheckbox);
 
-	textCheckboxLayout = new QHBoxLayout;
-	fcpXmlCheckboxLayout = new QHBoxLayout;
-	premiereXmlCheckboxLayout = new QHBoxLayout;
-	edlCheckboxLayout = new QHBoxLayout;
-	// Add a spacer to the layouts to create the indent
-	textCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
-	fcpXmlCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
-	premiereXmlCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
-	edlCheckboxLayout->addSpacing(Constants::INDENT_SPACING);
-	// Add the checkboxes to the layouts
-	textCheckboxLayout->addWidget(exportChaptersToTextCheckbox);
-	fcpXmlCheckboxLayout->addWidget(exportChaptersToFCPXMLCheckbox);
-	premiereXmlCheckboxLayout->addWidget(exportChaptersToPremiereXMLCheckbox);
-	edlCheckboxLayout->addWidget(exportChaptersToEDLCheckbox);
-
-	// Add the QHBoxLayouts to the main layout
-	if (!exportChaptersToFileEnabled) {
-		exportSettingsLayout->removeItem(textCheckboxLayout);
-		exportSettingsLayout->removeItem(fcpXmlCheckboxLayout);
-		exportSettingsLayout->removeItem(premiereXmlCheckboxLayout);
-		exportSettingsLayout->removeItem(edlCheckboxLayout);
-	} else {
-		exportSettingsLayout->addLayout(textCheckboxLayout);
-		exportSettingsLayout->addLayout(fcpXmlCheckboxLayout);
-		exportSettingsLayout->addLayout(premiereXmlCheckboxLayout);
-		exportSettingsLayout->addLayout(edlCheckboxLayout);
-	}
+	// Indented sub-options under "Export to file" — one container with a single
+	// left indent so every sub-toggle's switch lines up in one column. Shown/
+	// hidden as a unit with the parent toggle.
+	exportSubWidget = new QWidget();
+	QVBoxLayout *exportSubLayout = new QVBoxLayout(exportSubWidget);
+	exportSubLayout->setContentsMargins(S(Constants::INDENT_SPACING), 0, 0, 0);
+	exportSubLayout->setSpacing(S(8));
+	exportSubLayout->addWidget(exportChaptersToTextCheckbox);
+	exportSubLayout->addWidget(exportChaptersToFCPXMLCheckbox);
+	exportSubLayout->addWidget(exportChaptersToPremiereXMLCheckbox);
+	exportSubLayout->addWidget(exportChaptersToEDLCheckbox);
+	exportSubWidget->setVisible(exportChaptersToFileEnabled);
+	exportSettingsLayout->addWidget(exportSubWidget);
 
 	exportSettingsGroup->setLayout(exportSettingsLayout);
 
@@ -732,19 +701,19 @@ void ChapterMarkerDock::setupSettingsExportGroup(QVBoxLayout *mainLayout)
 
 void ChapterMarkerDock::setupSettingsAutoChapterGroup(QVBoxLayout *mainLayout)
 {
-	sceneChangeSettingsGroup = new QGroupBox(obs_module_text("AutoChapterSettings"), settingsDialog);
-	sceneChangeSettingsGroup->setStyleSheet(GetGroupBoxStyle());
+	sceneChangeSettingsGroup = new QWidget(settingsDialog);
 	QVBoxLayout *sceneChangeSettingsLayout = new QVBoxLayout(sceneChangeSettingsGroup);
+	sceneChangeSettingsLayout->addWidget(sectionHeader(obs_module_text("AutoChapterSettings")));
 
 	// Add chapter on scene change checkbox
-	chapterOnSceneChangeCheckbox = new SwitchWidget(obs_module_text("AutoChapterOnSceneChange"), sceneChangeSettingsGroup);
+	chapterOnSceneChangeCheckbox = makeSwitch(obs_module_text("AutoChapterOnSceneChange"), sceneChangeSettingsGroup);
 	chapterOnSceneChangeCheckbox->setToolTip(obs_module_text("AutoChapterOnSceneChangeTooltip"));
 	sceneChangeSettingsLayout->addWidget(chapterOnSceneChangeCheckbox);
 	chapterOnSceneChangeCheckbox->setChecked(chapterOnSceneChangeEnabled);
-	connect(chapterOnSceneChangeCheckbox->switchBtn, &SwitchButton::toggled, this, &ChapterMarkerDock::onChapterOnSceneChangeToggled);
+	connect(chapterOnSceneChangeCheckbox, &SwitchButton::toggled, this, &ChapterMarkerDock::onChapterOnSceneChangeToggled);
 
 	// Set ignore scene button
-	setIgnoredScenesButton = CreateStyledButton(obs_module_text("AutoChapterSetIgnoredScenes"), "primary-outline");
+	setIgnoredScenesButton = new PillButton(obs_module_text("AutoChapterSetIgnoredScenes"), "outline");
 	setIgnoredScenesButton->setToolTip(obs_module_text("AutoChapterSetIgnoredScenesTooltip"));
 	setIgnoredScenesButton->setVisible(chapterOnSceneChangeEnabled);
 	connect(setIgnoredScenesButton, &QPushButton::clicked, this, &ChapterMarkerDock::onSetIgnoredScenesClicked);
@@ -779,22 +748,8 @@ void ChapterMarkerDock::saveSettingsAndCloseDialog()
 void ChapterMarkerDock::onExportChaptersToFileToggled(bool checked)
 {
 	exportChaptersToFileEnabled = checked;
-	exportChaptersToTextCheckbox->setVisible(checked);
-	exportChaptersToFCPXMLCheckbox->setVisible(checked);
-	exportChaptersToPremiereXMLCheckbox->setVisible(checked);
-	exportChaptersToEDLCheckbox->setVisible(checked);
-
-	if (!checked) {
-		exportSettingsLayout->removeItem(textCheckboxLayout);
-		exportSettingsLayout->removeItem(fcpXmlCheckboxLayout);
-		exportSettingsLayout->removeItem(premiereXmlCheckboxLayout);
-		exportSettingsLayout->removeItem(edlCheckboxLayout);
-	} else {
-		exportSettingsLayout->addLayout(textCheckboxLayout);
-		exportSettingsLayout->addLayout(fcpXmlCheckboxLayout);
-		exportSettingsLayout->addLayout(premiereXmlCheckboxLayout);
-		exportSettingsLayout->addLayout(edlCheckboxLayout);
-	}
+	if (exportSubWidget)
+		exportSubWidget->setVisible(checked);
 
 	QSize size = exportSettingsGroup->sizeHint();
 	int newHeight = size.height();
@@ -844,29 +799,34 @@ void ChapterMarkerDock::onSetPresetChaptersButtonClicked()
 //--------------------PRESET CHAPTERS--------------------
 void ChapterMarkerDock::setupPresetChaptersDialog()
 {
-	presetChaptersDialog = new QDialog(this);
-	DialogChrome chrome = ApplyDialogChrome(presetChaptersDialog, obs_module_text("GeneralSettingsSetPresetHotkeys"));
-	QVBoxLayout *dialogLayout = chrome.contentLayout;
-	QVBoxLayout *footerLayout = chrome.footerLayout;
+	presetChaptersDialog = new ShadowDialog(this);
+	WindowShell chrome = applyChrome(static_cast<ShadowDialog *>(presetChaptersDialog),
+					 obs_module_text("GeneralSettingsSetPresetHotkeys"),
+					 QString("v%1").arg(PROJECT_VERSION), /*brandFooter=*/true,
+					 "StreamUP Chapter Marker Manager");
+	QVBoxLayout *dialogLayout = chrome.content;
+	dialogLayout->setContentsMargins(S(20), S(16), S(20), S(16)); // applyChrome content has no padding
+	dialogLayout->setSpacing(S(12));
 
 	// Explanation label
 	QLabel *explanationLabel = new QLabel(obs_module_text("GeneralSettingsSetPresetChaptersExplanation"), presetChaptersDialog);
 	explanationLabel->setWordWrap(true);
-	explanationLabel->setStyleSheet(GetLabelStyle());
+	explanationLabel->setStyleSheet(labelStyle());
 	dialogLayout->addWidget(explanationLabel);
 
 	// Input field for new chapter names
 	presetChapterNameInput = new QLineEdit(presetChaptersDialog);
 	presetChapterNameInput->setPlaceholderText(obs_module_text("SetPresetHotkeysChapterNameInput"));
 	presetChapterNameInput->setToolTip(obs_module_text("SetPresetHotkeysChapterNameInputTooltip"));
-	presetChapterNameInput->setStyleSheet(GetInputStyle());
+	presetChapterNameInput->setStyleSheet(lineEditStyle());
 	dialogLayout->addWidget(presetChapterNameInput);
 
 	// Add and Remove buttons
 	QHBoxLayout *buttonsLayout = new QHBoxLayout();
-	addChapterButton = CreateStyledButton(obs_module_text("SetPresetHotkeysAddChapter"), "primary");
+	buttonsLayout->setSpacing(S(10));
+	addChapterButton = new PillButton(obs_module_text("SetPresetHotkeysAddChapter"), "primary");
 	addChapterButton->setToolTip(obs_module_text("SetPresetHotkeysAddChapterTooltip"));
-	removeChapterButton = CreateStyledButton(obs_module_text("SetPresetHotkeyRemoveChapter"), "danger");
+	removeChapterButton = new PillButton(obs_module_text("SetPresetHotkeyRemoveChapter"), "danger");
 	removeChapterButton->setToolTip(obs_module_text("SetPresetHotkeyRemoveChapterTooltip"));
 	buttonsLayout->addWidget(addChapterButton);
 	buttonsLayout->addWidget(removeChapterButton);
@@ -874,7 +834,9 @@ void ChapterMarkerDock::setupPresetChaptersDialog()
 
 	// List widget to display chapters
 	chaptersListWidget = new QListWidget(presetChaptersDialog);
-	chaptersListWidget->setStyleSheet(GetListWidgetStyle());
+	chaptersListWidget->setStyleSheet(listStyle());
+	chaptersListWidget->setMinimumHeight(S(160));
+	useScrollBars(chaptersListWidget);
 	dialogLayout->addWidget(chaptersListWidget);
 
 	// Connections for buttons
@@ -898,17 +860,16 @@ void ChapterMarkerDock::setupPresetChaptersDialog()
 		}
 	});
 
-	// Footer buttons
-	QHBoxLayout *buttonRow = new QHBoxLayout();
-	buttonRow->addStretch();
-	QPushButton *okBtn = CreateStyledButton("OK", "primary");
-	QPushButton *cancelBtn = CreateStyledButton("Cancel", "secondary");
-	buttonRow->addWidget(cancelBtn);
-	buttonRow->addWidget(okBtn);
-	footerLayout->addLayout(buttonRow);
+	// Footer buttons in the right-anchored slot (Cancel = outline).
+	QPushButton *okBtn = new PillButton("Done", "primary");
+	QPushButton *cancelBtn = new PillButton("Cancel", "outline");
+	chrome.footerButtons->addWidget(cancelBtn);
+	chrome.footerButtons->addWidget(okBtn);
 
 	connect(okBtn, &QPushButton::clicked, presetChaptersDialog, &QDialog::accept);
 	connect(cancelBtn, &QPushButton::clicked, presetChaptersDialog, &QDialog::reject);
+
+	presetChaptersDialog->setMinimumWidth(S(440));
 }
 
 void ChapterMarkerDock::registerChapterHotkey(const QString &chapterName)
@@ -996,15 +957,19 @@ void ChapterMarkerDock::LoadPresetChapters(obs_data_t *settings)
 //--------------------IGNORED SCENES UI--------------------
 QDialog *ChapterMarkerDock::createIgnoredScenesUI()
 {
-	QDialog *dialog = new QDialog(this);
-	DialogChrome chrome = ApplyDialogChrome(dialog, obs_module_text("IgnoredScenes"));
-	QVBoxLayout *mainLayout = chrome.contentLayout;
-	QVBoxLayout *footerLayout = chrome.footerLayout;
+	QDialog *dialog = new ShadowDialog(this);
+	WindowShell chrome = applyChrome(static_cast<ShadowDialog *>(dialog),
+					 obs_module_text("IgnoredScenes"),
+					 QString("v%1").arg(PROJECT_VERSION), /*brandFooter=*/true,
+					 "StreamUP Chapter Marker Manager");
+	QVBoxLayout *mainLayout = chrome.content;
+	mainLayout->setContentsMargins(S(20), S(16), S(20), S(16)); // applyChrome content has no padding
 
 	ignoredScenesListWidget = new QListWidget(dialog);
 	ignoredScenesListWidget->setSelectionMode(QAbstractItemView::MultiSelection);
 	ignoredScenesListWidget->setToolTip(obs_module_text("IgnoredScenesTooltip"));
-	ignoredScenesListWidget->setStyleSheet(GetListWidgetStyle());
+	ignoredScenesListWidget->setStyleSheet(listStyle());
+	useScrollBars(ignoredScenesListWidget);
 
 	// Disable horizontal scrolling
 	ignoredScenesListWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1014,7 +979,7 @@ QDialog *ChapterMarkerDock::createIgnoredScenesUI()
 
 	// Adjust the width of the list widget to fit the contents
 	int longestNameWidth = ignoredScenesListWidget->sizeHintForColumn(0);
-	ignoredScenesListWidget->setFixedWidth(longestNameWidth + 30); // Add some padding
+	ignoredScenesListWidget->setFixedWidth(longestNameWidth + S(30)); // Add some padding
 
 	// Calculate the height for 10 entries
 	int rowHeight = ignoredScenesListWidget->sizeHintForRow(0);
@@ -1023,14 +988,11 @@ QDialog *ChapterMarkerDock::createIgnoredScenesUI()
 
 	mainLayout->addWidget(ignoredScenesListWidget);
 
-	// Footer buttons
-	QHBoxLayout *buttonRow = new QHBoxLayout();
-	buttonRow->addStretch();
-	QPushButton *okBtn = CreateStyledButton("OK", "primary");
-	QPushButton *cancelBtn = CreateStyledButton("Cancel", "secondary");
-	buttonRow->addWidget(cancelBtn);
-	buttonRow->addWidget(okBtn);
-	footerLayout->addLayout(buttonRow);
+	// Footer buttons in the right-anchored slot (Cancel = outline).
+	QPushButton *okBtn = new PillButton("OK", "primary");
+	QPushButton *cancelBtn = new PillButton("Cancel", "outline");
+	chrome.footerButtons->addWidget(cancelBtn);
+	chrome.footerButtons->addWidget(okBtn);
 
 	connect(okBtn, &QPushButton::clicked, this, &ChapterMarkerDock::saveIgnoredScenes);
 	connect(cancelBtn, &QPushButton::clicked, dialog, &QDialog::reject);
@@ -1115,6 +1077,9 @@ void ChapterMarkerDock::createExportFiles()
 	QString baseName = fileInfo.completeBaseName();
 	QString directoryPath = fileInfo.absolutePath();
 
+	recordingMediaPath = outputPath;
+	recordingMediaBaseName = baseName;
+
 	if (exportChaptersToTextEnabled) {
 		const QString chapterFilePath = directoryPath + "/" + baseName + Constants::TEXT_FILE_SUFFIX;
 		QFile file(chapterFilePath);
@@ -1132,42 +1097,11 @@ void ChapterMarkerDock::createExportFiles()
 
 	if (exportChaptersToFCPXMLEnabled) {
 		const QString fcpXmlFilePath = directoryPath + "/" + baseName + Constants::FCPXML_FILE_SUFFIX;
-		QFile fcpXmlFile(fcpXmlFilePath);
-		if (fcpXmlFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-			QTextStream out(&fcpXmlFile);
-			int fps = getFrameRate();
-
-			// Build file:// URL for FCP7 compatibility
-			QString fileUrl = "file://localhost/" + QDir::fromNativeSeparators(outputPath);
-
-			out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-			out << "<!DOCTYPE xmeml>\n";
-			out << "<xmeml version=\"5\">\n";
-			out << "  <clip>\n";
-			out << "    <name>" << escapeXml(baseName) << "</name>\n";
-			out << "    <rate>\n";
-			out << "      <timebase>" << fps << "</timebase>\n";
-			out << "    </rate>\n";
-			out << "    <media>\n";
-			out << "      <video>\n";
-			out << "        <track>\n";
-			out << "          <clipitem>\n";
-			out << "            <name>" << escapeXml(baseName) << "</name>\n";
-			out << "            <file id=\"file1\">\n";
-			out << "              <name>" << escapeXml(baseName) << "</name>\n";
-			out << "              <pathurl>" << escapeXml(fileUrl) << "</pathurl>\n";
-			out << "              <media>\n";
-			out << "                <video/>\n";
-			out << "              </media>\n";
-			out << "            </file>\n";
-			// Markers will be appended here before closing tags
-			fcpXmlFile.close();
-			blog(LOG_INFO, "[StreamUP Record Chapter Manager] Created FCP XML chapter file: %s", QT_TO_UTF8(fcpXmlFilePath));
-			setExportFCPXMLFilePath(fcpXmlFilePath);
-		} else {
-			blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to create FCP XML chapter file: %s",
-			     QT_TO_UTF8(fcpXmlFilePath));
-		}
+		// FCPXML requires the asset duration up-front, so we buffer markers in
+		// memory during recording and write the full document in closeFCPXMLFile().
+		fcpChapters.clear();
+		setExportFCPXMLFilePath(fcpXmlFilePath);
+		blog(LOG_INFO, "[StreamUP Record Chapter Manager] FCPXML chapter file path set: %s", QT_TO_UTF8(fcpXmlFilePath));
 	}
 
 	if (exportChaptersToPremiereXMLEnabled) {
@@ -1296,34 +1230,28 @@ void ChapterMarkerDock::writeChapterToFCPXMLFile(const QString &chapterName, con
 	}
 
 	if (exportFCPXMLFilePath.isEmpty()) {
-		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] FCP XML file path is not set, creating a new file.");
+		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] FCPXML file path is not set, creating a new file.");
 		createExportFiles();
 		return;
 	}
 
-	// Convert timestamp HH:MM:SS to frame number
 	QTime time = QTime::fromString(timestamp, "HH:mm:ss");
 	int totalSeconds = time.hour() * 3600 + time.minute() * 60 + time.second();
-	int fps = getFrameRate();
-	int frameNumber = totalSeconds * fps;
 
-	QFile file(exportFCPXMLFilePath);
-	if (!file.open(QIODevice::Append | QIODevice::Text)) {
-		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to open FCP XML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
-		return;
-	}
+	// Derive the marker frame from the *actual* rational fps so it stays
+	// consistent with how closeFCPXMLFile renders the time back out as
+	// frameNumber * fpsDen / fpsNum. Using the rounded integer fps here
+	// (30 for 29.97) drifts ~0.1% on true NTSC rates, growing with the
+	// timestamp. Integer rates (30/60) stay exact.
+	obs_video_info ovi = {};
+	bool oviOk = obs_get_video_info(&ovi) && ovi.fps_num > 0 && ovi.fps_den > 0;
+	uint32_t fpsNum = oviOk ? ovi.fps_num : 30000;
+	uint32_t fpsDen = oviOk ? ovi.fps_den : 1000;
+	int frameNumber = static_cast<int>(
+		round(static_cast<double>(totalSeconds) * static_cast<double>(fpsNum) / static_cast<double>(fpsDen)));
 
 	QString fullChapterName = appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
-
-	QTextStream out(&file);
-	out << "            <marker>\n";
-	out << "              <comment>" << escapeXml(fullChapterName) << "</comment>\n";
-	out << "              <name>" << escapeXml(chapterName) << "</name>\n";
-	out << "              <in>" << frameNumber << "</in>\n";
-	out << "              <out>-1</out>\n";
-	out << "            </marker>\n";
-	file.close();
-
+	fcpChapters.append(qMakePair(frameNumber, fullChapterName));
 	fcpMarkerID++;
 }
 
@@ -1369,22 +1297,88 @@ void ChapterMarkerDock::closeFCPXMLFile()
 		return;
 	}
 
+	obs_video_info ovi = {};
+	bool oviOk = obs_get_video_info(&ovi) && ovi.fps_num > 0 && ovi.fps_den > 0;
+	uint32_t fpsNum = oviOk ? ovi.fps_num : 30000;
+	uint32_t fpsDen = oviOk ? ovi.fps_den : 1000;
+	uint32_t width = (oviOk && ovi.output_width > 0) ? ovi.output_width : 1920;
+	uint32_t height = (oviOk && ovi.output_height > 0) ? ovi.output_height : 1080;
+
+	// Asset/clip duration in frames: max marker frame, padded so the last
+	// chapter has somewhere to live. Falls back to a non-zero duration if
+	// no chapters were captured.
+	int durationFrames = 0;
+	for (const auto &m : fcpChapters) {
+		if (m.first > durationFrames) {
+			durationFrames = m.first;
+		}
+	}
+	int padFrames = static_cast<int>(round(static_cast<double>(fpsNum) / static_cast<double>(fpsDen)));
+	if (padFrames < 1) {
+		padFrames = 1;
+	}
+	durationFrames += padFrames;
+	if (durationFrames < padFrames) {
+		durationFrames = padFrames;
+	}
+
+	const QString assetName = recordingMediaBaseName.isEmpty()
+					  ? QFileInfo(exportFCPXMLFilePath).completeBaseName()
+					  : recordingMediaBaseName;
+
+	// FCPXML's <media-rep src> is required, so always produce a file:// URL.
+	// Fall back to a synthesised path next to the FCPXML if no recording
+	// path was captured (defensive; createExportFiles normally sets it).
+	QString srcPath = recordingMediaPath;
+	if (srcPath.isEmpty()) {
+		srcPath = QFileInfo(exportFCPXMLFilePath).absolutePath() + "/" + assetName + ".mp4";
+	}
+	QString abs = QDir::fromNativeSeparators(QFileInfo(srcPath).absoluteFilePath());
+	if (!abs.startsWith('/')) {
+		abs.prepend('/');
+	}
+	const QString srcUrl = "file://" + abs;
+
 	QFile file(exportFCPXMLFilePath);
-	if (!file.open(QIODevice::Append | QIODevice::Text)) {
-		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to close FCP XML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Failed to write FCPXML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
 		return;
 	}
 
 	QTextStream out(&file);
-	out << "          </clipitem>\n";
-	out << "        </track>\n";
-	out << "      </video>\n";
-	out << "    </media>\n";
-	out << "  </clip>\n";
-	out << "</xmeml>\n";
+	out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+	out << "<!DOCTYPE fcpxml>\n";
+	out << "<fcpxml version=\"1.13\">\n";
+	out << "  <resources>\n";
+	out << "    <format id=\"r1\" name=\"FFVideoFormat\" frameDuration=\"" << fpsDen << "/" << fpsNum
+	    << "s\" width=\"" << width << "\" height=\"" << height << "\"/>\n";
+	out << "    <asset id=\"r2\" name=\"" << escapeXml(assetName)
+	    << "\" start=\"0s\" hasVideo=\"1\" hasAudio=\"1\" videoSources=\"1\" audioSources=\"1\" duration=\""
+	    << (static_cast<qint64>(durationFrames) * fpsDen) << "/" << fpsNum << "s\" format=\"r1\">\n";
+	out << "      <media-rep kind=\"original-media\" src=\"" << escapeXml(srcUrl) << "\"/>\n";
+	out << "    </asset>\n";
+	out << "  </resources>\n";
+	out << "  <library>\n";
+	out << "    <event name=\"OBS Recording\">\n";
+	out << "      <asset-clip name=\"" << escapeXml(assetName)
+	    << "\" ref=\"r2\" offset=\"0s\" start=\"0s\" duration=\""
+	    << (static_cast<qint64>(durationFrames) * fpsDen) << "/" << fpsNum << "s\" format=\"r1\">\n";
+	for (const auto &m : fcpChapters) {
+		out << "        <chapter-marker start=\""
+		    << (static_cast<qint64>(m.first) * fpsDen) << "/" << fpsNum
+		    << "s\" duration=\"" << fpsDen << "/" << fpsNum
+		    << "s\" value=\"" << escapeXml(m.second) << "\"/>\n";
+	}
+	out << "      </asset-clip>\n";
+	out << "    </event>\n";
+	out << "  </library>\n";
+	out << "</fcpxml>\n";
 	file.close();
 
-	blog(LOG_INFO, "[StreamUP Record Chapter Manager] Closed FCP XML file: %s", QT_TO_UTF8(exportFCPXMLFilePath));
+	blog(LOG_INFO, "[StreamUP Record Chapter Manager] Wrote FCPXML chapter file: %s (%d markers)",
+	     QT_TO_UTF8(exportFCPXMLFilePath), static_cast<int>(fcpChapters.size()));
+
+	fcpChapters.clear();
 }
 
 void ChapterMarkerDock::closePremiereXMLFile()
@@ -1570,8 +1564,6 @@ void ChapterMarkerDock::onSceneChanged()
 	}
 }
 
-extern bool (*obs_frontend_recording_add_chapter_wrapper)(const char *name);
-
 void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QString &chapterSource)
 {
 	QString fullChapterName = chapterName;
@@ -1584,24 +1576,20 @@ void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QStri
 	}
 
 	if (insertChapterMarkersInVideoEnabled) {
-		if (obs_frontend_recording_add_chapter_wrapper) {
-			bool success = obs_frontend_recording_add_chapter_wrapper(QT_TO_UTF8(fullChapterName));
-			if (!success) {
-				blog(LOG_INFO,
-				     "[StreamUP Record Chapter Manager] You have selected to insert chapters into video file. You are not using a compatible file type.");
+		bool success = obs_frontend_recording_add_chapter(QT_TO_UTF8(fullChapterName));
+		if (!success) {
+			blog(LOG_INFO,
+			     "[StreamUP Record Chapter Manager] You have selected to insert chapters into video file. You are not using a compatible file type.");
 
-				if (!incompatibleFileTypeMessageShown) {
-					QMessageBox msgBox;
-					msgBox.setWindowTitle(obs_module_text("StreamUPChapterMarkerManagerError"));
-					msgBox.setIcon(QMessageBox::Warning);
-					msgBox.setText(obs_module_text("IncompatibleFileTypeError"));
-					msgBox.setInformativeText(obs_module_text("IncompatibleFileType"));
-					msgBox.setStandardButtons(QMessageBox::Ok);
-					msgBox.setDefaultButton(QMessageBox::Ok);
-					msgBox.exec();
+			if (!incompatibleFileTypeMessageShown) {
+				// Branded notification (was a native QMessageBox). NOTE: now
+				// modeless (non-blocking) vs the old modal exec(); safe here —
+				// it's a one-time notice and nothing branches on its result.
+				info(this, obs_module_text("StreamUPChapterMarkerManagerError"),
+				     QString("%1\n\n%2").arg(obs_module_text("IncompatibleFileTypeError"),
+							     obs_module_text("IncompatibleFileType")));
 
-					incompatibleFileTypeMessageShown = true;
-				}
+				incompatibleFileTypeMessageShown = true;
 			}
 		}
 		auto ph = obs_get_proc_handler();
@@ -1695,9 +1683,9 @@ void ChapterMarkerDock::applyThemeIDToButton(QPushButton *button, const QString 
 	}
 
 	button->setProperty("themeID", themeID);
-	button->setMinimumSize(Constants::BUTTON_MIN_WIDTH, Constants::BUTTON_MIN_HEIGHT);
-	button->setMaximumSize(Constants::BUTTON_MAX_WIDTH, Constants::BUTTON_MAX_HEIGHT);
-	button->setIconSize(QSize(Constants::BUTTON_ICON_SIZE, Constants::BUTTON_ICON_SIZE));
+	button->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
+	button->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
+	button->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
 	button->style()->unpolish(button);
 	button->style()->polish(button);
 }
