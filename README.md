@@ -18,10 +18,10 @@ Incremental naming is built in too. Chapter 1, Chapter 2, and so on. No thinking
 Your markers can go wherever your editing software needs them:
 
 - **Text file** - One line per chapter with timestamps. Simple.
-- **FCP XML** - Frame-accurate markers for Final Cut Pro with NTSC drop-frame support.
+- **FCP XML** - Frame-accurate markers for Final Cut Pro. Proper modern FCPXML that current Final Cut versions import straight away, with correct timing on fractional frame rates like 29.97.
 - **Premiere XML** - Same deal but for Adobe Premiere Pro.
 - **EDL** - Industry standard Edit Decision List. Colour-coded markers in DaVinci Resolve based on how the chapter was created (manual, hotkey, scene change, WebSocket).
-- **Embedded in video** - Insert chapters directly into the recording file. Needs a compatible container like Hybrid MP4.
+- **Embedded in video** - Insert chapters directly into the recording file. Needs a compatible container like Hybrid MP4. Works on Windows and macOS.
 
 Files get saved alongside your recording automatically.
 
@@ -75,7 +75,7 @@ All configurable from the gear icon in the dock:
 
 For the full walkthrough, check out the [guide on Notion](https://streamup.notion.site/OBS-Chapter-Marker-Manager-1567a7ed1438449cbbe8be87143568df?pvs=74).
 
-Got feedback or requests? Drop them in the [StreamUP Discord](https://discord.com/invite/RnDKRaVCEu).
+Got feedback or requests? Use the built-in **Feedback** button to send them straight from the plugin, or drop them in the [StreamUP Discord](https://discord.com/invite/RnDKRaVCEu).
 
 ## Support
 

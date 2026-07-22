@@ -3,15 +3,15 @@
 ---
 
 ## v1.3.1 (09 May '26)
-**Patch Focus:** macOS chapter embed and real FCPXML 1.13 export
-- Fixed hybrid MP4 chapter markers being silently dropped on macOS. The plugin was looking up obs_frontend_recording_add_chapter via os_dlopen/os_dlsym, which appended .so on macOS and quietly returned NULL; the symbol now resolves at link time on every platform.
-- Replaced the legacy FCP7 xmeml export with real FCPXML 1.13. The old format died with Final Cut Pro 7 in 2011, and modern Final Cut Pro will not import it.
-- New FCPXML export uses NTSC-safe rational time values, the real recording resolution from obs_video_info, the .fcpxml extension, and the proper FCPXML 1.13 chapter-marker structure. Verified against Apple's FCPXML 1.13 DTD.
-- Markers are now buffered during recording and flushed when the recording stops, since FCPXML needs the asset duration up front.
-- Fixed FCPXML marker time drift on fractional frame rates. Marker frames were computed from the rounded integer fps (30 for 29.97) but rendered back as the exact rational, drifting ~0.1% and growing with the timestamp. Frames are now derived from the actual obs_video_info rational, so input and output agree and integer rates stay exact.
-- Refreshed the dialog UI: added elevation shadows, fill-only cards, and scoped separators for clearer visual hierarchy.
-- Switched the settings palette to native OBS theming so dialogs and dock content follow the active OBS theme.
-- Dialogs now scale with the operating system text-size setting for better readability on high-DPI and accessibility setups.
+**Patch Focus:** macOS chapter embed and real Final Cut export
+- Fixed hybrid MP4 chapter markers being silently dropped on macOS. They now embed into the recording properly.
+- Final Cut Pro export is now real FCPXML 1.13, so modern Final Cut imports it straight away. The old format died with Final Cut Pro 7 and no current version could read it.
+- Fixed marker timing drifting on fractional frame rates like 29.97. Timings now stay accurate all the way through the recording.
+- Refreshed the dialog UI so it shares the StreamUP look.
+- Settings now follow the active OBS theme.
+- Dialogs scale with your operating system text-size setting for easier reading.
+- Dialogs resize now. Grab any edge or corner and drag to the size you want.
+- Added an in-app Feedback button so you can send bugs and ideas straight from the plugin.
 
 ## v1.3.0 (12 Apr '26)
 **Patch Focus:** StreamUP UI design system & settings redesign
