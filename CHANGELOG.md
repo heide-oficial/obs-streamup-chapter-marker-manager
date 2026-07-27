@@ -11,6 +11,8 @@
 - Settings now follow the active OBS theme.
 - Dialogs scale with your operating system text-size setting for easier reading.
 - Dialogs resize now. Grab any edge or corner and drag to the size you want.
+- Dragging a dialog onto another monitor no longer leaves it blank until you let go of the mouse.
+- Pressing Enter in a confirmation box now confirms it. Enter used to land on Cancel.
 - Added an in-app Feedback button so you can send bugs and ideas straight from the plugin.
 
 ## v1.3.0 (12 Apr '26)
