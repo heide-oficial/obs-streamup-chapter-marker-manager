@@ -61,6 +61,8 @@ All configurable from the gear icon in the dock:
 
 ## Build
 
+Requires OBS Studio 31.1 or newer.
+
 **In-tree build:**
 1. Build OBS Studio: https://obsproject.com/wiki/Install-Instructions
 2. Check out this repository to `frontend/plugins/obs-streamup-chapter-marker-manager`

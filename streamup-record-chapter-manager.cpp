@@ -478,10 +478,10 @@ void obs_module_unload()
 
 MODULE_EXPORT const char *obs_module_description(void)
 {
-	return obs_module_text("Description");
+	return obs_module_text("Plugin.Description");
 }
 
 MODULE_EXPORT const char *obs_module_name(void)
 {
-	return obs_module_text("StreamUPRecordChapterManager");
+	return obs_module_text("Plugin.Name");
 }
