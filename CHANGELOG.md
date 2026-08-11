@@ -32,7 +32,7 @@
 - Fixed EDL timecodes being offset by 1 hour in DaVinci Resolve
 - Fixed EDL header always reporting non-drop frame even when recording at 29.97/59.94 fps
 - Fixed "Start" chapter marker not being embedded into the MP4 video file
-- Fixed "End" marker only being written to text export — now written to all enabled export formats
+- Fixed "End" marker only being written to text export, now written to all enabled export formats
 - Fixed special characters in chapter names breaking XML exports
 - Fixed potential crash when accessing chapter name from WebSocket while a chapter is being set
 - Fixed potential crash from dangling string pointers when saving settings
