@@ -2,6 +2,13 @@
 
 ---
 
+## Unreleased
+
+### Bug Fixes
+- The dock read "Current Chapter:Name" with no space. There is a gap after the colon now
+
+---
+
 ## v1.3.1 (09 May '26)
 **Patch Focus:** macOS chapter embed and real Final Cut export
 - Fixed hybrid MP4 chapter markers being silently dropped on macOS. They now embed into the recording properly.

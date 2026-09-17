@@ -257,6 +257,7 @@ void ChapterMarkerDock::setupMainDockCurrentChapterLayout(QVBoxLayout *mainLayou
 	QHBoxLayout *chapterLabelLayout = new QHBoxLayout();
 	chapterLabelLayout->setObjectName("chapterLabelLayout");
 	chapterLabelLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+	chapterLabelLayout->setSpacing(6);
 
 	currentChapterTextLabel->setObjectName("currentChapterTextLabel");
 	currentChapterTextLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
