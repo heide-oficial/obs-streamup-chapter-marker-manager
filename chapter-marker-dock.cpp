@@ -1,3 +1,4 @@
+// Modified for heide-oficial's fork, 2026-11-19. See FORK.md and LICENSE.
 #include "chapter-marker-dock.hpp"
 #include "annotation-dock.hpp"
 #include "constants.hpp"
@@ -14,6 +15,10 @@
 #include <obs-frontend-api.h>
 #include <obs-module.h>
 #include <QApplication>
+#include <QAction>
+#include <QDialogButtonBox>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -126,17 +131,13 @@ ChapterMarkerDock::ChapterMarkerDock(QWidget *parent)
 	  insertChapterMarkersCheckbox(nullptr),
 	  ignoredScenesDialog(nullptr),
 	  sceneChangeSettingsGroup(nullptr),
-	  chapterNameInput(new QLineEdit(this)),
-	  settingsButton(new QPushButton(this)),
 	  setIgnoredScenesButton(nullptr),
-	  annotationButton(new QPushButton(this)),
 	  setPresetChaptersButton(nullptr),
-	  currentChapterTextLabel(new QLabel(obs_module_text("CurrentChapterLabel"), this)),
-	  currentChapterNameLabel(new QLabel(obs_module_text("RecordingNotActive"), this)),
+	  lastChapterLabel(new QLabel(obs_module_text("NoChapterCreated"), this)),
 	  feedbackLabel(new QLabel("", this)),
 	  previousChaptersList(new QListWidget(this)),
 	  previousChaptersGroup(nullptr),
-	  saveChapterMarkerButton(new QPushButton(obs_module_text("SaveChapterMarkerButton"), this)),
+	  saveChapterMarkerButton(new QPushButton(obs_module_text("NewChapterButton"), this)),
 	  defaultChapterNameEdit(nullptr),
 	  showPreviousChaptersCheckbox(nullptr),
 	  fullChapterHistoryCheckbox(nullptr),
@@ -148,6 +149,11 @@ ChapterMarkerDock::ChapterMarkerDock(QWidget *parent)
 	  exportSubWidget(nullptr),
 	  exportSettingsLayout(nullptr)
 {
+	// Settings remain reachable without a gear button in the compact dock.
+	auto *settingsAction = static_cast<QAction *>(obs_frontend_add_tools_menu_qaction(obs_module_text("ChapterSettingsMenu")));
+	connect(settingsAction, &QAction::triggered, this, &ChapterMarkerDock::onSettingsClicked);
+	auto *typesAction = static_cast<QAction *>(obs_frontend_add_tools_menu_qaction(obs_module_text("ChapterTypesMenu")));
+	connect(typesAction, &QAction::triggered, this, &ChapterMarkerDock::onSetPresetChaptersButtonClicked);
 	// UI Setup
 	setupMainDockUI();
 	// Signal Connections
@@ -182,24 +188,15 @@ void ChapterMarkerDock::setupConnections()
 	// Websocket add chapter
 	connect(this, &ChapterMarkerDock::addChapterMarkerSignal, this, &ChapterMarkerDock::onAddChapterMarker);
 
-	// Enter Chapter Name text field and button
-	connect(chapterNameInput, &QLineEdit::returnPressed, saveChapterMarkerButton, &QPushButton::click);
 	connect(saveChapterMarkerButton, &QPushButton::clicked, this, &ChapterMarkerDock::onAddChapterMarkerButton);
-
-	// Settings button
-	connect(settingsButton, &QPushButton::clicked, this, &ChapterMarkerDock::onSettingsClicked);
-
-	// Annotation button
-	connect(annotationButton, &QPushButton::clicked, this, &ChapterMarkerDock::onAnnotationClicked);
-
-	// Previous Chapter list
-	connect(previousChaptersList, &QListWidget::itemClicked, this, &ChapterMarkerDock::onPreviousChapterSelected);
 	connect(previousChaptersList, &QListWidget::itemDoubleClicked, this, &ChapterMarkerDock::onPreviousChapterDoubleClicked);
+	nativeChapterTimer.setInterval(250);
+	connect(&nativeChapterTimer, &QTimer::timeout, this, &ChapterMarkerDock::readNativeChapters);
 
 	// Feedback label timer
 	feedbackTimer.setInterval(Constants::FEEDBACK_TIMER_INTERVAL);
 	feedbackTimer.setSingleShot(true);
-	connect(&feedbackTimer, &QTimer::timeout, [this]() { feedbackLabel->setText(""); });
+	connect(&feedbackTimer, &QTimer::timeout, this, [this]() { feedbackLabel->clear(); feedbackLabel->hide(); });
 }
 
 // TODO: OBS does not currently emit a frontend event when a recording file is split.
@@ -239,10 +236,6 @@ void ChapterMarkerDock::setupMainDockUI()
 	mainDockLayout->setContentsMargins(0, 0, 0, 0);
 	mainDockLayout->setSpacing(0);
 
-	setupMainDockCurrentChapterLayout(mainDockLayout);
-	mainDockLayout->addSpacing(S(6));
-	setupMainDockChapterInput(mainDockLayout);
-	mainDockLayout->addSpacing(S(6));
 	setupMainDockSaveButtonLayout(mainDockLayout);
 	mainDockLayout->addSpacing(S(6));
 	setupMainDockFeedbackLabel(mainDockLayout);
@@ -252,80 +245,22 @@ void ChapterMarkerDock::setupMainDockUI()
 	setLayout(mainDockLayout);
 }
 
-void ChapterMarkerDock::setupMainDockCurrentChapterLayout(QVBoxLayout *mainLayout)
-{
-	QHBoxLayout *chapterLabelLayout = new QHBoxLayout();
-	chapterLabelLayout->setObjectName("chapterLabelLayout");
-	chapterLabelLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-
-	currentChapterTextLabel->setObjectName("currentChapterTextLabel");
-	currentChapterTextLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-	currentChapterNameLabel->setObjectName("currentChapterNameLabel");
-	currentChapterNameLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-	currentChapterNameLabel->setWordWrap(true);
-	currentChapterNameLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-	currentChapterNameLabel->setProperty("themeID", "error");
-
-	chapterLabelLayout->addWidget(currentChapterTextLabel);
-	chapterLabelLayout->addWidget(currentChapterNameLabel);
-
-	mainLayout->addLayout(chapterLabelLayout);
-}
-
-void ChapterMarkerDock::setupMainDockChapterInput(QVBoxLayout *mainLayout)
-{
-	chapterNameInput->setObjectName("chapterNameInput");
-	chapterNameInput->setPlaceholderText(obs_module_text("EnterChapterName"));
-	chapterNameInput->setToolTip(obs_module_text("EnterChapterNameTooltip"));
-	mainLayout->addWidget(chapterNameInput);
-}
-
 void ChapterMarkerDock::setupMainDockSaveButtonLayout(QVBoxLayout *mainLayout)
 {
-	QHBoxLayout *saveButtonLayout = new QHBoxLayout();
-	saveButtonLayout->setObjectName("saveButtonLayout");
-
-	// Make Save Chapter Marker button fill the horizontal space
-	saveChapterMarkerButton->setObjectName("saveChapterMarkerButton");
+	saveChapterMarkerButton->setObjectName("newChapterButton");
 	saveChapterMarkerButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-	saveChapterMarkerButton->setToolTip(obs_module_text("SaveChapterMarkerButtonTooltip"));
-
-	// Configure the settings button
-	settingsButton->setObjectName("settingsButton");
-	settingsButton->setToolTip(obs_module_text("SettingsTooltip"));
-	settingsButton->setProperty("themeID", "configIconSmall");
-	settingsButton->setProperty("class", "icon-gear");
-	settingsButton->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
-	settingsButton->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
-	settingsButton->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
-	settingsButton->style()->unpolish(settingsButton);
-	settingsButton->style()->polish(settingsButton);
-
-	// Configure the annotation button
-	annotationButton->setObjectName("annotationButton");
-	annotationButton->setIcon(QIcon(":images/annotation-icon.svg"));
-	annotationButton->setMinimumSize(S(Constants::BUTTON_MIN_WIDTH), S(Constants::BUTTON_MIN_HEIGHT));
-	annotationButton->setMaximumSize(S(Constants::BUTTON_MAX_WIDTH), S(Constants::BUTTON_MAX_HEIGHT));
-	annotationButton->setIconSize(QSize(S(Constants::BUTTON_ICON_SIZE), S(Constants::BUTTON_ICON_SIZE)));
-	annotationButton->setToolTip(obs_module_text("AnnotationButtonTooltip"));
-
-	// Add the Save Chapter Marker button and a stretch to push the settings button to the right
-	saveButtonLayout->addWidget(saveChapterMarkerButton);
-	saveButtonLayout->addStretch();
-	saveButtonLayout->addWidget(annotationButton);
-	saveButtonLayout->addSpacing(S(4));
-	saveButtonLayout->addWidget(settingsButton);
-
-	saveButtonLayout->setAlignment(saveChapterMarkerButton, Qt::AlignLeft);
-	saveButtonLayout->setAlignment(annotationButton, Qt::AlignRight);
-	saveButtonLayout->setAlignment(settingsButton, Qt::AlignRight);
-
-	mainLayout->addLayout(saveButtonLayout);
+	mainLayout->addWidget(saveChapterMarkerButton);
 }
 
 void ChapterMarkerDock::setupMainDockFeedbackLabel(QVBoxLayout *mainLayout)
 {
+	lastChapterLabel->setObjectName("lastChapterCreatedLabel");
+	lastChapterLabel->setTextFormat(Qt::PlainText);
+	lastChapterLabel->setWordWrap(true);
+	mainLayout->addWidget(lastChapterLabel);
 	feedbackLabel->setObjectName("feedbackLabel");
+	feedbackLabel->setTextFormat(Qt::PlainText);
+	feedbackLabel->hide();
 	feedbackLabel->setProperty("themeID", "good");
 	style()->polish(feedbackLabel);
 	feedbackLabel->setWordWrap(true);
@@ -362,30 +297,47 @@ void ChapterMarkerDock::refreshMainDockUI()
 //--------------------MAIN DOCK UI EVENT HANDLERS--------------------
 void ChapterMarkerDock::onAddChapterMarkerButton()
 {
-	if (!obs_frontend_recording_active()) {
-		blog(LOG_WARNING, "[StreamUP Record Chapter Manager] Recording is not active. Chapter marker not added.");
-		showFeedbackMessage(obs_module_text("ChapterMarkerNotActive"), true);
+	if (chapterPicker) {
+		chapterPicker->raise();
+		chapterPicker->activateWindow();
 		return;
 	}
-
-	if (!exportChaptersToFileEnabled && !insertChapterMarkersInVideoEnabled) {
-		showFeedbackMessage(obs_module_text("NoExportMethod"), true);
-		return;
-	}
-
-	QString chapterName = getChapterName();
-	if (chapterName.isEmpty()) {
-		// Use the default chapter name if the user did not provide one
-		if (useIncrementalChapterNames) {
-			chapterName = defaultChapterName + " " + QString::number(chapterCount);
-			chapterCount++;
-		} else {
-			chapterName = defaultChapterName;
+	auto *dialog = new QDialog(this);
+	chapterPicker = dialog;
+	dialog->setObjectName("newChapterDialog");
+	dialog->setWindowTitle(obs_module_text("NewChapterButton"));
+	dialog->setWindowModality(Qt::ApplicationModal);
+	dialog->setAttribute(Qt::WA_DeleteOnClose);
+	dialog->resize(S(360), S(360));
+	auto *layout = new QVBoxLayout(dialog);
+	layout->addWidget(new QLabel(obs_module_text("ChooseChapterType"), dialog));
+	chapterTypesList = new QListWidget(dialog);
+	chapterTypesList->setObjectName("chapterTypesList");
+	layout->addWidget(chapterTypesList);
+	populateChapterTypes();
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+	buttons->button(QDialogButtonBox::Ok)->setText(obs_module_text("CreateChapter"));
+	layout->addWidget(buttons);
+	auto create = [this, dialog]() {
+		auto *item = chapterTypesList->currentItem();
+		if (!item)
+			return;
+		if (!obs_frontend_recording_active()) {
+			showFeedbackMessage(obs_module_text("ChapterMarkerNotActive"), true);
+			return;
 		}
-	}
-
-	addChapterMarker(chapterName, obs_module_text("SourceManual"));
-	chapterNameInput->clear();
+		if (!exportChaptersToFileEnabled && !insertChapterMarkersInVideoEnabled) {
+			showFeedbackMessage(obs_module_text("NoExportMethod"), true);
+			return;
+		}
+		addChapterMarker(item->data(Qt::UserRole).toString(), obs_module_text("SourceManual"));
+		dialog->accept();
+	};
+	connect(buttons, &QDialogButtonBox::accepted, this, create);
+	connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+	connect(chapterTypesList, &QListWidget::itemDoubleClicked, this, [create](QListWidgetItem *) { create(); });
+	connect(dialog, &QDialog::finished, this, [this]() { chapterTypesList = nullptr; chapterPicker = nullptr; });
+	dialog->open();
 }
 
 void ChapterMarkerDock::onSettingsClicked()
@@ -400,15 +352,13 @@ void ChapterMarkerDock::onSettingsClicked()
 
 void ChapterMarkerDock::onRecordingStopped()
 {
+	readNativeChapters();
+	nativeChapterTimer.stop();
+	nativeChapterLog.close();
 	if (!exportChaptersToFileEnabled && !insertChapterMarkersInVideoEnabled) {
 		showFeedbackMessage(obs_module_text("NoExportMethod"), true);
 		return;
 	}
-
-	currentChapterNameLabel->setText(obs_module_text("RecordingNotActive"));
-	currentChapterNameLabel->setProperty("themeID", "error");
-	currentChapterNameLabel->style()->unpolish(currentChapterNameLabel);
-	currentChapterNameLabel->style()->polish(currentChapterNameLabel);
 
 	showFeedbackMessage(obs_module_text("RecordingFinished"), false);
 
@@ -426,7 +376,6 @@ void ChapterMarkerDock::onRecordingStopped()
 	closeFCPXMLFile();
 	closePremiereXMLFile();
 
-	clearPreviousChaptersGroup();
 	blog(LOG_INFO, "[StreamUP Record Chapter Manager] chapterCount: %d", chapterCount);
 
 	incompatibleFileTypeMessageShown = false;
@@ -435,20 +384,10 @@ void ChapterMarkerDock::onRecordingStopped()
 	fcpMarkerID = 1; // Reset FCP marker ID for next recording
 }
 
-void ChapterMarkerDock::onPreviousChapterSelected()
-{
-	QListWidgetItem *currentItem = previousChaptersList->currentItem();
-	if (currentItem) {
-		chapterNameInput->setText(currentItem->text());
-	}
-}
-
 void ChapterMarkerDock::onPreviousChapterDoubleClicked(QListWidgetItem *item)
 {
-	if (item) {
-		chapterNameInput->setText(item->text());
-		saveChapterMarkerButton->click();
-	}
+	if (item)
+		addChapterMarker(item->data(Qt::UserRole).toString(), obs_module_text("SourceManual"));
 }
 
 void ChapterMarkerDock::clearPreviousChaptersGroup()
@@ -496,37 +435,20 @@ void ChapterMarkerDock::setAnnotationDock(AnnotationDock *dock)
 //--------------------MAIN DOCK LABELS--------------------
 void ChapterMarkerDock::updateCurrentChapterLabel(const QString &chapterName)
 {
-	if (!exportChaptersToFileEnabled && !insertChapterMarkersInVideoEnabled) {
-		showFeedbackMessage(obs_module_text("NoExportMethod"), true);
-		return;
-	}
-
-	QFontMetrics metrics(currentChapterNameLabel->font());
-	int labelWidth = currentChapterNameLabel->width();
-
-	QString elidedText = metrics.elidedText(chapterName, Qt::ElideRight, labelWidth);
-
-	currentChapterNameLabel->setText(elidedText);
-
-	currentChapterNameLabel->setProperty("themeID", "good");
-	currentChapterNameLabel->style()->unpolish(currentChapterNameLabel);
-	currentChapterNameLabel->style()->polish(currentChapterNameLabel);
+	lastChapterLabel->setText(QString("%1 %2").arg(obs_module_text("LastChapterCreated"), chapterName));
+	lastChapterLabel->setToolTip(chapterName);
 }
 
 void ChapterMarkerDock::showFeedbackMessage(const QString &message, bool isError)
 {
-	QFontMetrics metrics(feedbackLabel->font());
-	int labelWidth = feedbackLabel->width();
-
-	QString elidedText = metrics.elidedText(message, Qt::ElideRight, labelWidth);
-
 	feedbackLabel->setWordWrap(true);
-	feedbackLabel->setText(elidedText);
+	feedbackLabel->setText(message);
+	feedbackLabel->show();
 
 	if (isError) {
-		setChapterMarkerFeedbackLabel(elidedText, "error");
+		setChapterMarkerFeedbackLabel(message, "error");
 	} else {
-		setChapterMarkerFeedbackLabel(elidedText, "good");
+		setChapterMarkerFeedbackLabel(message, "good");
 	}
 
 	feedbackTimer.start();
@@ -613,6 +535,13 @@ void ChapterMarkerDock::setupSettingsGeneralGroup(QVBoxLayout *mainLayout)
 	useIncrementalChapterNamesSwitch->setChecked(useIncrementalChapterNames);
 	connect(useIncrementalChapterNamesSwitch, &SwitchButton::toggled, this,
 		[this](bool checked) { useIncrementalChapterNames = checked; });
+
+	auto *incrementCustomSwitch = makeSwitch(obs_module_text("UseIncrementalCustomChapterNames"), generalSettingsGroup);
+	incrementCustomSwitch->setToolTip(obs_module_text("UseIncrementalCustomChapterNamesTooltip"));
+	incrementCustomSwitch->setChecked(useIncrementalCustomChapterNames);
+	generalSettingsLayout->addWidget(incrementCustomSwitch);
+	connect(incrementCustomSwitch, &SwitchButton::toggled, this,
+		[this](bool checked) { useIncrementalCustomChapterNames = checked; });
 
 	showPreviousChaptersCheckbox = makeSwitch(obs_module_text("GeneralSettingsShowChapterHistory"), generalSettingsGroup);
 	showPreviousChaptersCheckbox->setToolTip(obs_module_text("PreviousChaptersTooltip"));
@@ -847,6 +776,8 @@ void ChapterMarkerDock::setupPresetChaptersDialog()
 			chaptersListWidget->addItem(chapterName);
 			presetChapterNameInput->clear();
 			registerChapterHotkey(chapterName);
+			obs_frontend_save();
+			populateChapterTypes();
 		}
 	});
 
@@ -857,6 +788,8 @@ void ChapterMarkerDock::setupPresetChaptersDialog()
 			presetChapters.removeOne(chapterName);
 			delete item;
 			unregisterChapterHotkey(chapterName);
+			obs_frontend_save();
+			populateChapterTypes();
 		}
 	});
 
@@ -1566,63 +1499,68 @@ void ChapterMarkerDock::onSceneChanged()
 
 void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QString &chapterSource)
 {
-	QString fullChapterName = chapterName;
-	QString sourceText = " (" + chapterSource + ")";
-
-	if (addChapterSourceEnabled) {
-		if (!fullChapterName.contains(sourceText)) {
-			fullChapterName += sourceText;
-		}
+	if (!obs_frontend_recording_active()) {
+		showFeedbackMessage(obs_module_text("ChapterMarkerNotActive"), true);
+		return;
 	}
-
+	if (!exportChaptersToFileEnabled && !insertChapterMarkersInVideoEnabled) {
+		showFeedbackMessage(obs_module_text("NoExportMethod"), true);
+		return;
+	}
+	const QString baseName = chapterName.trimmed().isEmpty() ? defaultChapterName : chapterName.trimmed();
+	const bool automatic = chapterSource == obs_module_text("Recording") || chapterSource == obs_module_text("ChangeScene");
+	const bool incremental = !automatic && (baseName == defaultChapterName ? useIncrementalChapterNames : useIncrementalCustomChapterNames);
+	const QString name = incremental ? chapterState.preview(baseName) : baseName;
+	const QString fullName = appendChapterSource(name, chapterSource, addChapterSourceEnabled);
+	bool embedded = false;
 	if (insertChapterMarkersInVideoEnabled) {
-		bool success = obs_frontend_recording_add_chapter(QT_TO_UTF8(fullChapterName));
-		if (!success) {
-			blog(LOG_INFO,
-			     "[StreamUP Record Chapter Manager] You have selected to insert chapters into video file. You are not using a compatible file type.");
-
-			if (!incompatibleFileTypeMessageShown) {
-				// Branded notification (was a native QMessageBox). NOTE: now
-				// modeless (non-blocking) vs the old modal exec(); safe here —
-				// it's a one-time notice and nothing branches on its result.
-				info(this, obs_module_text("StreamUPChapterMarkerManagerError"),
-				     QString("%1\n\n%2").arg(obs_module_text("IncompatibleFileTypeError"),
-							     obs_module_text("IncompatibleFileType")));
-
-				incompatibleFileTypeMessageShown = true;
-			}
+		embedded = obs_frontend_recording_add_chapter(QT_TO_UTF8(fullName));
+		if (embedded)
+			++pendingEmbeddedChapters[fullName];
+		else {
+			showFeedbackMessage(obs_module_text("IncompatibleFileTypeError"), true);
+			if (!exportChaptersToFileEnabled)
+				return;
 		}
-		auto ph = obs_get_proc_handler();
+		auto *ph = obs_get_proc_handler();
 		calldata cd;
 		calldata_init(&cd);
-		calldata_set_string(&cd, Constants::AITUM_VERTICAL_PARAM, QT_TO_UTF8(fullChapterName));
+		calldata_set_string(&cd, Constants::AITUM_VERTICAL_PARAM, QT_TO_UTF8(fullName));
 		proc_handler_call(ph, Constants::AITUM_VERTICAL_PROC, &cd);
 		calldata_free(&cd);
-	} // Log and handle the result of adding the chapter marker
-	QString timestamp = getCurrentRecordingTime();
+	}
+	if (incremental)
+		chapterState.commit(baseName);
+	recordChapter(name, chapterSource, getCurrentRecordingTime(), baseName);
+}
 
+void ChapterMarkerDock::recordChapter(const QString &chapterName, const QString &chapterSource,
+				     const QString &timestamp, const QString &baseName, bool alreadyEmbedded)
+{
+	const QString fullChapterName = alreadyEmbedded ? chapterName : appendChapterSource(chapterName, chapterSource, addChapterSourceEnabled);
 	// Always write to the chapter file if enabled
 	if (exportChaptersToTextEnabled) {
-		writeChapterToTextFile(chapterName, timestamp, chapterSource);
+		writeChapterToTextFile(fullChapterName, timestamp, chapterSource);
 	}
 
 	if (exportChaptersToFCPXMLEnabled) {
-		writeChapterToFCPXMLFile(chapterName, timestamp, chapterSource);
+		writeChapterToFCPXMLFile(fullChapterName, timestamp, chapterSource);
 	}
 
 	if (exportChaptersToPremiereXMLEnabled) {
-		writeChapterToPremiereXMLFile(chapterName, timestamp, chapterSource);
+		writeChapterToPremiereXMLFile(fullChapterName, timestamp, chapterSource);
 	}
 
 	if (exportChaptersToEDLEnabled) {
-		writeChapterToEDLFile(chapterName, timestamp, chapterSource);
+		writeChapterToEDLFile(fullChapterName, timestamp, chapterSource);
 	}
 
 	blog(LOG_INFO, "[StreamUP Record Chapter Manager] Added chapter marker: %s", QT_TO_UTF8(fullChapterName));
 
 	updateCurrentChapterLabel(fullChapterName);
-	QString feedbackMessage = QString("%1 %2").arg(obs_module_text("NewChapter")).arg(fullChapterName);
-	showFeedbackMessage(feedbackMessage, false);
+	feedbackTimer.stop();
+	feedbackLabel->clear();
+	feedbackLabel->hide();
 
 	// Update the global current chapter name (mutex protects WebSocket thread reads)
 	{
@@ -1637,23 +1575,26 @@ void ChapterMarkerDock::addChapterMarker(const QString &chapterName, const QStri
 	}
 
 	QList<QListWidgetItem *> items = previousChaptersList->findItems(displayText, Qt::MatchExactly);
-	if (!items.isEmpty()) {
+	if (!fullChapterHistoryEnabled && !items.isEmpty()) {
 		delete previousChaptersList->takeItem(previousChaptersList->row(items.first()));
 	}
-	previousChaptersList->insertItem(0, displayText);
+	auto *historyItem = new QListWidgetItem(displayText);
+	historyItem->setData(Qt::UserRole, baseName);
+	previousChaptersList->insertItem(0, historyItem);
 
-	chapters.insert(0, chapterName);
+	chapters.insert(0, fullChapterName);
 	timestamps.insert(0, timestamp);
 
 	// Emit WebSocket event for the new chapter marker
 	obs_data_t *event_data = obs_data_create();
-	obs_data_set_string(event_data, "chapterName", QT_TO_UTF8(chapterName));
+	obs_data_set_string(event_data, "chapterName", QT_TO_UTF8(fullChapterName));
 	obs_data_set_string(event_data, "chapterSource", QT_TO_UTF8(chapterSource));
 	EmitWebSocketEvent("ChapterMarkerSet", event_data);
 	obs_data_release(event_data);
 
 	// After the first run, set the flag to false
 	isFirstRunInRecording = false;
+	populateChapterTypes();
 }
 
 void ChapterMarkerDock::onAddChapterMarker(const QString &chapterName, const QString &chapterSource)
@@ -1690,17 +1631,115 @@ void ChapterMarkerDock::applyThemeIDToButton(QPushButton *button, const QString 
 	button->style()->polish(button);
 }
 
-QString ChapterMarkerDock::getChapterName() const
-{
-	return chapterNameInput->text();
-}
-
 void ChapterMarkerDock::resetRecordingStartFrameCount()
 {
 	// Store the current frame count when recording starts
 	// This allows us to calculate timestamps relative to the recording start
 	recordingStartFrameCount = obs_get_total_frames();
 	blog(LOG_INFO, "[StreamUP Record Chapter Manager] Recording started at frame: %llu", (unsigned long long)recordingStartFrameCount);
+}
+
+void ChapterMarkerDock::populateChapterTypes()
+{
+	if (!chapterTypesList)
+		return;
+	const QString selected = chapterTypesList->currentItem()
+					 ? chapterTypesList->currentItem()->data(Qt::UserRole).toString()
+					 : defaultChapterName;
+	chapterTypesList->clear();
+	QStringList types{defaultChapterName};
+	for (const auto &type : presetChapters) {
+		if (!types.contains(type))
+			types.append(type);
+	}
+	for (const auto &type : types) {
+		const bool incremental = type == defaultChapterName ? useIncrementalChapterNames : useIncrementalCustomChapterNames;
+		auto *item = new QListWidgetItem(incremental ? chapterState.preview(type) : type, chapterTypesList);
+		item->setData(Qt::UserRole, type);
+		if (type == selected)
+			chapterTypesList->setCurrentItem(item);
+	}
+	if (!chapterTypesList->currentItem())
+		chapterTypesList->setCurrentRow(0);
+}
+
+void ChapterMarkerDock::beginRecording()
+{
+	chapterState.reset();
+	clearPreviousChaptersGroup();
+	lastChapterLabel->setText(obs_module_text("NoChapterCreated"));
+	feedbackTimer.stop();
+	feedbackLabel->clear();
+	feedbackLabel->hide();
+	exportTextFilePath.clear();
+	exportFCPXMLFilePath.clear();
+	exportPremiereXMLFilePath.clear();
+	exportEDLFilePath.clear();
+	fcpChapters.clear();
+	startNativeChapterMonitor();
+	populateChapterTypes();
+}
+
+void ChapterMarkerDock::startNativeChapterMonitor()
+{
+	nativeChapterTimer.stop();
+	nativeChapterLog.close();
+	nativeLogBuffer.clear();
+	pendingEmbeddedChapters.clear();
+	recordingOutputName.clear();
+	obs_output_t *output = obs_frontend_get_recording_output();
+	if (output) {
+		recordingOutputName = QString::fromUtf8(obs_output_get_name(output));
+		obs_output_release(output);
+	}
+	// Resolve from OBS's own module config root, including portable installs.
+	char *configPath = obs_module_config_path("");
+	if (!configPath)
+		return;
+	QDir logDirectory(QFileInfo(QString::fromUtf8(configPath)).absoluteFilePath());
+	bfree(configPath);
+	logDirectory.cdUp(); // plugin_config
+	logDirectory.cdUp(); // OBS configuration root
+	if (logDirectory.cd("logs")) {
+		const auto logs = logDirectory.entryInfoList({"*.txt"}, QDir::Files, QDir::Name | QDir::Reversed);
+		if (!logs.isEmpty()) {
+			nativeChapterLog.setFileName(logs.first().absoluteFilePath());
+			if (nativeChapterLog.open(QIODevice::ReadOnly)) {
+				nativeChapterLog.seek(nativeChapterLog.size());
+				nativeChapterTimer.start();
+				return;
+			}
+		}
+	}
+	blog(LOG_WARNING, "[StreamUP Record Chapter Manager] %s", obs_module_text("NativeChapterMonitorUnavailable"));
+	showFeedbackMessage(obs_module_text("NativeChapterMonitorUnavailable"), true);
+}
+
+void ChapterMarkerDock::readNativeChapters()
+{
+	if (!nativeChapterLog.isOpen())
+		return;
+	if (nativeChapterLog.size() < nativeChapterLog.pos()) {
+		nativeChapterLog.seek(0);
+		nativeLogBuffer.clear();
+	}
+	nativeLogBuffer += nativeChapterLog.readAll();
+	qsizetype newline;
+	while ((newline = nativeLogBuffer.indexOf('\n')) >= 0) {
+		const auto line = QString::fromUtf8(nativeLogBuffer.left(newline));
+		nativeLogBuffer.remove(0, newline + 1);
+		NativeChapter chapter;
+		if (!parseNativeChapter(line, chapter) || chapter.output != recordingOutputName)
+			continue;
+		auto pending = pendingEmbeddedChapters.find(chapter.name);
+		if (pending != pendingEmbeddedChapters.end()) {
+			if (--pending.value() == 0)
+				pendingEmbeddedChapters.erase(pending);
+			continue;
+		}
+		// Observe only: this marker already exists in the MP4/MOV.
+		recordChapter(chapter.name, obs_module_text("NativeOBS"), chapter.timestamp, chapter.name, true);
+	}
 }
 
 QString ChapterMarkerDock::getCurrentRecordingTime() const
@@ -1742,6 +1781,7 @@ void ChapterMarkerDock::LoadSettings(obs_data_t *settings)
 	defaultChapterName = (savedName && *savedName) ? QString::fromUtf8(savedName)
 						       : QString::fromUtf8(Constants::DEFAULT_CHAPTER_NAME);
 	useIncrementalChapterNames = obs_data_get_bool(settings, "useIncrementalChapterNames");
+	useIncrementalCustomChapterNames = obs_data_get_bool(settings, "useIncrementalCustomChapterNames");
 
 	// Set chapter on scene change
 	chapterOnSceneChangeEnabled = obs_data_get_bool(settings, "chapterOnSceneChangeEnabled");
@@ -1790,6 +1830,7 @@ void ChapterMarkerDock::SaveSettings()
 				    ? obs_module_text("Chapter")
 				    : QT_TO_UTF8(defaultChapterNameEdit->text()));
 	obs_data_set_bool(settings, "useIncrementalChapterNames", useIncrementalChapterNames);
+	obs_data_set_bool(settings, "useIncrementalCustomChapterNames", useIncrementalCustomChapterNames);
 
 	// Set chapter on scene change
 	obs_data_set_bool(settings, "chapterOnSceneChangeEnabled", chapterOnSceneChangeCheckbox->isChecked());

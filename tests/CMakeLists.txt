@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(chapter-state-tests LANGUAGES CXX)
+find_package(Qt6 REQUIRED COMPONENTS Core)
+add_executable(chapter-state-tests chapter-state-tests.cpp)
+target_link_libraries(chapter-state-tests PRIVATE Qt6::Core)
+target_compile_features(chapter-state-tests PRIVATE cxx_std_17)
+enable_testing()
+add_test(NAME chapter-state COMMAND chapter-state-tests)

@@ -1,5 +1,9 @@
 # StreamUP Chapter Marker Manager for OBS Studio
 
+This is [heide-oficial's personal fork](https://github.com/heide-oficial/obs-streamup-chapter-marker-manager).
+See [FORK.md](FORK.md) for the modal chapter picker, persistent last chapter,
+per-type incremental names, native OBS chapter history, and build instructions.
+
 Chapter markers and annotations for your OBS recordings. If you're making content for multiple platforms, this keeps track of the moments you want to come back to later. Drop a marker, keep recording, sort it out in the edit.
 
 ## Creating Chapter Markers

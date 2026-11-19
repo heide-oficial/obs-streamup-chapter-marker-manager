@@ -1,8 +1,12 @@
+// Modified for heide-oficial's fork, 2026-11-19. See FORK.md and LICENSE.
 #pragma once
 
 #include <obs-frontend-api.h>
 #include <QDialog>
 #include <QFrame>
+#include <QFile>
+#include <QPointer>
+#include "chapter-state.hpp"
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -28,7 +32,6 @@ public:
 	~ChapterMarkerDock();
 	AnnotationDock *annotationDock;
 
-	QString getChapterName() const;
 	void setExportTextFilePath(const QString &filePath);
 	void setExportFCPXMLFilePath(const QString &filePath);
 	void setExportPremiereXMLFilePath(const QString &filePath);
@@ -73,6 +76,8 @@ public:
 	bool addChapterSourceEnabled;
 	int chapterCount;
 	bool useIncrementalChapterNames;
+	bool useIncrementalCustomChapterNames = false;
+	void beginRecording();
 
 	void setAnnotationDock(AnnotationDock *dock);
 	void writeAnnotationToFiles(const QString &chapterName, const QString &timestamp, const QString &chapterSource);
@@ -102,7 +107,6 @@ public slots:
 	void loadAnnotationDock();
 	void onSceneChanged();
 	void onRecordingStopped();
-	void onPreviousChapterSelected();
 	void onPreviousChapterDoubleClicked(QListWidgetItem *item);
 	void saveSettingsAndCloseDialog();
 	void refreshMainDockUI();
@@ -110,6 +114,20 @@ public slots:
 	void onSetIgnoredScenesClicked();
 
 private:
+	ChapterState chapterState;
+	QPointer<QDialog> chapterPicker;
+	QListWidget *chapterTypesList = nullptr;
+	QLabel *lastChapterLabel;
+	QFile nativeChapterLog;
+	QTimer nativeChapterTimer;
+	QByteArray nativeLogBuffer;
+	QMap<QString, int> pendingEmbeddedChapters;
+	QString recordingOutputName;
+	void populateChapterTypes();
+	void startNativeChapterMonitor();
+	void readNativeChapters();
+	void recordChapter(const QString &name, const QString &source, const QString &timestamp,
+			   const QString &baseName, bool alreadyEmbedded = false);
 	void setupPresetChaptersDialog();
 	void registerChapterHotkey(const QString &chapterName);
 	void unregisterChapterHotkey(const QString &chapterName);
@@ -119,8 +137,6 @@ private:
 	QPushButton *removeChapterButton;
 	QListWidget *chaptersListWidget;
 	void setupMainDockUI();
-	void setupMainDockCurrentChapterLayout(QVBoxLayout *mainLayout);
-	void setupMainDockChapterInput(QVBoxLayout *mainLayout);
 	void setupMainDockSaveButtonLayout(QVBoxLayout *mainLayout);
 	void setupMainDockFeedbackLabel(QVBoxLayout *mainLayout);
 	void setupMainDockPreviousChaptersGroup(QVBoxLayout *mainLayout);
@@ -149,15 +165,10 @@ private:
 	QDialog *createIgnoredScenesUI();
 	QDialog *ignoredScenesDialog;
 	QWidget *sceneChangeSettingsGroup;
-	QLineEdit *chapterNameInput;
 
-	QPushButton *settingsButton;
 	QPushButton *setIgnoredScenesButton;
-	QPushButton *annotationButton;
 	QPushButton *setPresetChaptersButton;
 
-	QLabel *currentChapterTextLabel;
-	QLabel *currentChapterNameLabel;
 	QLabel *feedbackLabel;
 	QTimer feedbackTimer;
 	QListWidget *previousChaptersList;

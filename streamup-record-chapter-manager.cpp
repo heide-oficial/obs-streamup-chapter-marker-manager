@@ -1,3 +1,4 @@
+// Modified for heide-oficial's fork, 2026-11-19. See FORK.md and LICENSE.
 #include "streamup-record-chapter-manager.hpp"
 #include "annotation-dock.hpp"
 #include "chapter-marker-dock.hpp"
@@ -75,9 +76,9 @@ static void FrontEndEventHandler(enum obs_frontend_event event, void *)
 	switch (event) {
 	case OBS_FRONTEND_EVENT_RECORDING_STARTED:
 		if (chapterMarkerDock) {
+			chapterMarkerDock->beginRecording();
 			chapterMarkerDock->isFirstRunInRecording = true;
 			chapterMarkerDock->resetRecordingStartFrameCount(); // Reset frame count to start at 00:00:00
-			chapterMarkerDock->updateCurrentChapterLabel(obs_module_text("Start"));
 			OnStartRecording();
 		}
 		break;
@@ -124,21 +125,7 @@ void WebsocketRequestSetChapterMarker(obs_data_t *request_data, obs_data_t *resp
 	QString qChapterName = QString::fromUtf8(chapterName ? chapterName : "");
 	QString qChapterSource = QString::fromUtf8(chapterSource ? chapterSource : "");
 
-	// If chapterName is empty, use the default chapter name logic
-	// Use thread-safe signal emission since WebSocket callbacks run on a non-UI thread
-	if (qChapterName.isEmpty()) {
-		QString defaultName;
-		int count;
-		QMetaObject::invokeMethod(
-			chapterMarkerDock,
-			[&defaultName, &count]() {
-				defaultName = chapterMarkerDock->defaultChapterName;
-				count = chapterMarkerDock->chapterCount;
-				chapterMarkerDock->chapterCount++;
-			},
-			Qt::BlockingQueuedConnection);
-		qChapterName = defaultName + " " + QString::number(count);
-	}
+	// Resolve blank names and all counters on the UI thread in addChapterMarker.
 
 	// If chapterSource is empty, default to "WebSocket"
 	if (qChapterSource.isEmpty()) {
@@ -298,12 +285,7 @@ void AddDefaultChapterMarkerHotkey(void *data, obs_hotkey_id id, obs_hotkey_t *h
 	QMetaObject::invokeMethod(
 		chapterMarkerDock,
 		[]() {
-			QString chapterName = chapterMarkerDock->defaultChapterName + " " +
-					      QString::number(chapterMarkerDock->chapterCount);
-			chapterMarkerDock->addChapterMarker(chapterName, obs_module_text("Hotkey"));
-			blog(LOG_INFO, "[StreamUP Record Chapter Manager] chapterCount: %d",
-			     chapterMarkerDock->chapterCount);
-			chapterMarkerDock->chapterCount++;
+			chapterMarkerDock->addChapterMarker(chapterMarkerDock->defaultChapterName, obs_module_text("Hotkey"));
 		},
 		Qt::QueuedConnection);
 }
