@@ -30,6 +30,7 @@ jobs:
           cmake --build build_tests --config Release
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $env:PATH = "$qtRoot/bin;$env:PATH"
+          $env:QT_PLUGIN_PATH = "$qtRoot/plugins"
           ctest --test-dir build_tests -C Release --output-on-failure
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Package Windows plugin

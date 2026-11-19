@@ -2,7 +2,6 @@
 #include "../chapter-picker-dialog.hpp"
 #include <QDialogButtonBox>
 #include <QPushButton>
-#include <QTest>
 #include <QVBoxLayout>
 #include <cstdlib>
 #include <iostream>
@@ -13,6 +12,16 @@ static void require(bool condition, const char *message)
 		std::cerr << message << '\n';
 		std::exit(1);
 	}
+}
+
+// Deliver real Qt events without depending on QtTest, which OBS's SDK excludes.
+static void keyClick(QWidget *target, Qt::Key key, Qt::KeyboardModifiers modifiers = Qt::NoModifier)
+{
+	QKeyEvent press(QEvent::KeyPress, key, modifiers);
+	QApplication::sendEvent(target, &press);
+	QKeyEvent release(QEvent::KeyRelease, key, modifiers);
+	QApplication::sendEvent(target, &release);
+	QApplication::processEvents();
 }
 
 int main(int argc, char **argv)
@@ -36,33 +45,33 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 10; ++i) {
 		const auto key = static_cast<Qt::Key>(i == 9 ? Qt::Key_0 : Qt::Key_1 + i);
 		const int before = created;
-		QTest::keyClick(list, key);
+		keyClick(list, key);
 		require(created == before + 1 && selected == i, "Number-row digit did not create the matching type");
-		QTest::keyClick(list, key, Qt::KeypadModifier);
+		keyClick(list, key, Qt::KeypadModifier);
 		require(created == before + 2 && selected == i, "Numpad digit did not create the matching type");
 	}
-	QTest::keyClick(button, Qt::Key_3);
+	keyClick(button, Qt::Key_3);
 	require(selected == 2, "Number shortcuts did not work while a footer button had focus");
 	const int before = created;
-	QTest::keyClick(list, Qt::Key_4, Qt::ControlModifier);
-	QTest::keyClick(list, Qt::Key_4, Qt::AltModifier);
+	keyClick(list, Qt::Key_4, Qt::ControlModifier);
+	keyClick(list, Qt::Key_4, Qt::AltModifier);
 	QKeyEvent repeat(QEvent::KeyPress, Qt::Key_4, Qt::NoModifier, "4", true);
 	QApplication::sendEvent(list, &repeat);
 	require(created == before, "Modified keys or autorepeat created an unwanted chapter");
-	QTest::keyClick(list, Qt::Key_End, Qt::KeypadModifier);
+	keyClick(list, Qt::Key_End, Qt::KeypadModifier);
 	require(selected == 0, "Num Lock off was not supported");
-	QTest::keyClick(list, Qt::Key_Insert, Qt::KeypadModifier);
+	keyClick(list, Qt::Key_Insert, Qt::KeypadModifier);
 	require(selected == 9, "Numpad zero with Num Lock off was not supported");
 	list->clear();
 	list->addItem("Only chapter");
 	const int beforeMissing = created;
-	QTest::keyClick(list, Qt::Key_0);
+	keyClick(list, Qt::Key_0);
 	require(created == beforeMissing && picker.isVisible(), "An unassigned digit created a chapter or closed the picker");
-	QTest::keyClick(list, Qt::Key_Escape);
+	keyClick(list, Qt::Key_Escape);
 	require(!picker.isVisible() && created == beforeMissing, "Escape did not cancel without creating a chapter");
 	picker.show();
 	picker.createSelected = [&]() { ++created; picker.accept(); };
-	QTest::keyClick(list, Qt::Key_1);
+	keyClick(list, Qt::Key_1);
 	require(!picker.isVisible() && created == beforeMissing + 1, "A successful number selection did not close the picker");
 	std::cout << "Real Qt picker: number row, numpad, focus, repeat, invalid digits and cancellation passed.\n";
 }
