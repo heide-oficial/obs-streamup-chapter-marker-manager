@@ -52,7 +52,7 @@ public:
 	void writeChapterToEDLFile(const QString &chapterName, const QString &timestamp, const QString &chapterSource);
 	void setExportEDLFilePath(const QString &filePath);
 	QString convertTimestampToTimecode(const QString &timestamp, int frameNumber) const;
-	void addChapterMarker(const QString &chapterName, const QString &chapterSource);
+	bool addChapterMarker(const QString &chapterName, const QString &chapterSource);
 	bool exportChaptersToTextEnabled;
 	bool exportChaptersToFCPXMLEnabled;
 	bool exportChaptersToPremiereXMLEnabled;
@@ -179,6 +179,7 @@ private:
 	QLineEdit *defaultChapterNameEdit;
 	StreamUP::UIStyles::SwitchButton *showPreviousChaptersCheckbox;
 	StreamUP::UIStyles::SwitchButton *fullChapterHistoryCheckbox;
+	StreamUP::UIStyles::SwitchButton *incrementCustomCheckbox = nullptr;
 	StreamUP::UIStyles::SwitchButton *addChapterSourceCheckbox;
 	StreamUP::UIStyles::SwitchButton *chapterOnSceneChangeCheckbox;
 	QListWidget *ignoredScenesListWidget;
