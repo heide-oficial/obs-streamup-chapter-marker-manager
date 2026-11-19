@@ -1,5 +1,7 @@
 // Modified for heide-oficial's fork, 2026-11-19. See FORK.md and LICENSE.
 #include "chapter-marker-dock.hpp"
+#include "chapter-picker-dialog.hpp"
+#include "chapter-export-path.hpp"
 #include "annotation-dock.hpp"
 #include "constants.hpp"
 #include "streamup-record-chapter-manager.hpp"
@@ -247,9 +249,19 @@ void ChapterMarkerDock::setupMainDockUI()
 
 void ChapterMarkerDock::setupMainDockSaveButtonLayout(QVBoxLayout *mainLayout)
 {
+	auto *buttons = new QHBoxLayout;
 	saveChapterMarkerButton->setObjectName("newChapterButton");
 	saveChapterMarkerButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-	mainLayout->addWidget(saveChapterMarkerButton);
+	buttons->addWidget(saveChapterMarkerButton, 1);
+	auto *settingsButton = new QPushButton(this);
+	settingsButton->setObjectName("settingsButton");
+	settingsButton->setToolTip(obs_module_text("SettingsTooltip"));
+	settingsButton->setAccessibleName(obs_module_text("ChapterMarkerManagerSettings"));
+	settingsButton->setProperty("class", "icon-gear");
+	applyThemeIDToButton(settingsButton, "configIconSmall");
+	connect(settingsButton, &QPushButton::clicked, this, &ChapterMarkerDock::onSettingsClicked);
+	buttons->addWidget(settingsButton);
+	mainLayout->addLayout(buttons);
 }
 
 void ChapterMarkerDock::setupMainDockFeedbackLabel(QVBoxLayout *mainLayout)
@@ -298,11 +310,12 @@ void ChapterMarkerDock::refreshMainDockUI()
 void ChapterMarkerDock::onAddChapterMarkerButton()
 {
 	if (chapterPicker) {
+		chapterPicker->show();
 		chapterPicker->raise();
 		chapterPicker->activateWindow();
 		return;
 	}
-	auto *dialog = new QDialog(this);
+	auto *dialog = new ChapterPickerDialog(this);
 	chapterPicker = dialog;
 	dialog->setObjectName("newChapterDialog");
 	dialog->setWindowTitle(obs_module_text("NewChapterButton"));
@@ -311,7 +324,11 @@ void ChapterMarkerDock::onAddChapterMarkerButton()
 	dialog->resize(S(360), S(360));
 	auto *layout = new QVBoxLayout(dialog);
 	layout->addWidget(new QLabel(obs_module_text("ChooseChapterType"), dialog));
+	auto *keyHint = new QLabel(obs_module_text("ChapterPickerNumberHint"), dialog);
+	keyHint->setWordWrap(true);
+	layout->addWidget(keyHint);
 	chapterTypesList = new QListWidget(dialog);
+	dialog->choices = chapterTypesList;
 	chapterTypesList->setObjectName("chapterTypesList");
 	layout->addWidget(chapterTypesList);
 	populateChapterTypes();
@@ -337,8 +354,13 @@ void ChapterMarkerDock::onAddChapterMarkerButton()
 	connect(buttons, &QDialogButtonBox::accepted, this, create);
 	connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
 	connect(chapterTypesList, &QListWidget::itemDoubleClicked, this, [create](QListWidgetItem *) { create(); });
+	dialog->createSelected = create;
+	dialog->enableNumberKeys();
 	connect(dialog, &QDialog::finished, this, [this]() { chapterTypesList = nullptr; chapterPicker = nullptr; });
 	dialog->open();
+	dialog->raise();
+	dialog->activateWindow();
+	chapterTypesList->setFocus(Qt::ShortcutFocusReason);
 }
 
 void ChapterMarkerDock::onSettingsClicked()
@@ -1009,10 +1031,15 @@ void ChapterMarkerDock::createExportFiles()
 
 	QFileInfo fileInfo(outputPath);
 	QString baseName = fileInfo.completeBaseName();
-	QString directoryPath = fileInfo.absolutePath();
+	const QString directoryPath = chapterExportDirectory(outputPath);
 
 	recordingMediaPath = outputPath;
 	recordingMediaBaseName = baseName;
+	if (!QDir().mkpath(directoryPath)) {
+		blog(LOG_ERROR, "[StreamUP Record Chapter Manager] Could not create chapter folder: %s", QT_TO_UTF8(directoryPath));
+		showFeedbackMessage(obs_module_text("ChapterExportDirectoryError"), true);
+		return;
+	}
 
 	if (exportChaptersToTextEnabled) {
 		const QString chapterFilePath = directoryPath + "/" + baseName + Constants::TEXT_FILE_SUFFIX;
@@ -1656,9 +1683,11 @@ void ChapterMarkerDock::populateChapterTypes()
 		if (!types.contains(type))
 			types.append(type);
 	}
-	for (const auto &type : types) {
+	for (qsizetype row = 0; row < types.size(); ++row) {
+		const auto &type = types[row];
 		const bool incremental = type == defaultChapterName ? useIncrementalChapterNames : useIncrementalCustomChapterNames;
-		auto *item = new QListWidgetItem(incremental ? chapterState.preview(type) : type, chapterTypesList);
+		const QString keyHint = row < 10 ? QString("[%1] ").arg((row + 1) % 10) : QString();
+		auto *item = new QListWidgetItem(keyHint + (incremental ? chapterState.preview(type) : type), chapterTypesList);
 		item->setData(Qt::UserRole, type);
 		if (type == selected)
 			chapterTypesList->setCurrentItem(item);

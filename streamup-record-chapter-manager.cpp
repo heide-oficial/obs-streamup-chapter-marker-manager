@@ -215,6 +215,7 @@ void WebsocketRequestSetAnnotation(obs_data_t *request_data, obs_data_t *respons
 
 //--------------------HOTKEY HANDLERS--------------------
 obs_hotkey_id addDefaultChapterMarkerHotkey = OBS_INVALID_HOTKEY_ID;
+static obs_hotkey_id openChapterPickerHotkey = OBS_INVALID_HOTKEY_ID;
 
 static void SaveLoadHotkeys(obs_data_t *save_data, bool saving, void *)
 {
@@ -225,6 +226,9 @@ static void SaveLoadHotkeys(obs_data_t *save_data, bool saving, void *)
 		obs_data_array_t *hotkey_save_array = obs_hotkey_save(addDefaultChapterMarkerHotkey);
 		obs_data_set_array(save_data, "addDefaultChapterMarkerHotkey", hotkey_save_array);
 		obs_data_array_release(hotkey_save_array);
+		obs_data_array_t *pickerBindings = obs_hotkey_save(openChapterPickerHotkey);
+		obs_data_set_array(save_data, "openChapterPickerHotkey", pickerBindings);
+		obs_data_array_release(pickerBindings);
 
 		if (chapterMarkerDock) {
 			// Save preset chapter hotkeys
@@ -247,6 +251,14 @@ static void SaveLoadHotkeys(obs_data_t *save_data, bool saving, void *)
 		obs_data_array_t *hotkey_load_array = obs_data_get_array(save_data, "addDefaultChapterMarkerHotkey");
 		obs_hotkey_load(addDefaultChapterMarkerHotkey, hotkey_load_array);
 		obs_data_array_release(hotkey_load_array);
+		if (obs_data_has_user_value(save_data, "openChapterPickerHotkey")) {
+			obs_data_array_t *pickerBindings = obs_data_get_array(save_data, "openChapterPickerHotkey");
+			obs_hotkey_load(openChapterPickerHotkey, pickerBindings);
+			obs_data_array_release(pickerBindings);
+		} else {
+			obs_key_combination_t combination = {INTERACT_CONTROL_KEY | INTERACT_ALT_KEY, OBS_KEY_N};
+			obs_hotkey_load_bindings(openChapterPickerHotkey, &combination, 1);
+		}
 
 		if (is_first_run && chapterMarkerDock) {
 			// Load preset chapter hotkeys
@@ -383,6 +395,14 @@ obs_data_t *SaveLoadSettingsCallback(obs_data_t *save_data, bool saving)
 //--------------------STARTUP COMMANDS--------------------
 static void RegisterHotkeys()
 {
+	openChapterPickerHotkey = obs_hotkey_register_frontend(
+		Constants::HOTKEY_OPEN_CHAPTER_PICKER, obs_module_text("HotkeyOpenChapterPicker"),
+		[](void *, obs_hotkey_id, obs_hotkey_t *, bool pressed) {
+			if (pressed && chapterMarkerDock) {
+				QMetaObject::invokeMethod(chapterMarkerDock, &ChapterMarkerDock::onAddChapterMarkerButton,
+						  Qt::QueuedConnection);
+			}
+		}, nullptr);
 	addDefaultChapterMarkerHotkey = obs_hotkey_register_frontend(Constants::HOTKEY_ADD_DEFAULT_CHAPTER,
 								     obs_module_text("HotkeyAddDefaultChapterMarker"),
 								     AddDefaultChapterMarkerHotkey, chapterMarkerDock);
@@ -456,6 +476,7 @@ void obs_module_unload()
 
 	obs_frontend_remove_save_callback(SaveLoadHotkeys, nullptr);
 	obs_hotkey_unregister(addDefaultChapterMarkerHotkey);
+	obs_hotkey_unregister(openChapterPickerHotkey);
 }
 
 MODULE_EXPORT const char *obs_module_description(void)

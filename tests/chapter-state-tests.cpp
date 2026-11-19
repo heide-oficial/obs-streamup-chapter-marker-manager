@@ -1,5 +1,6 @@
 // Fork behavior regression tests, 2026-11-19. GPL-2.0; see ../LICENSE.
 #include "../chapter-state.hpp"
+#include "../chapter-export-path.hpp"
 #include <QStringList>
 #include <cstdlib>
 #include <iostream>
@@ -36,5 +37,9 @@ int main()
 	require(parseNativeChapter("08:20:00.123: [mov output: 'simple_file_output'] Adding chapter \"Clip: \\\"funny\\\" — ação\" at 123:12:35.456\r", chapter), "MOV, Unicode, quotes, or long recordings not supported");
 	require(!parseNativeChapter("08:20:00.123: [StreamUP Record Chapter Manager] Added chapter marker: Unnamed 3", chapter), "Plugin feedback imported as a native marker");
 	require(!parseNativeChapter("08:20:00.123: [mp4 output: 'adv_file_output'] Adding chapter \"Unnamed 3\" at 00:12:", chapter), "Partial log line was imported");
+	const QString root = QDir::tempPath() + "/OBS videos";
+	require(chapterExportDirectory(root + "/mission.part.01.mp4") == root + "/mission.part.01", "Chapter folder did not preserve the full video stem");
+	require(chapterExportDirectory(root + "/another recording.mov") == root + "/another recording", "MOV export folder was incorrect");
+	require(chapterExportDirectory(root + "/second.mp4") != chapterExportDirectory(root + "/first.mp4"), "Separate videos shared a chapter export folder");
 	std::cout << "Chapter counters and native OBS log regression checks passed.\n";
 }

@@ -4,12 +4,21 @@ Maintained at https://github.com/heide-oficial/obs-streamup-chapter-marker-manag
 Based on StreamUPTips/obs-streamup-chapter-marker-manager; original copyright and
 GPL-2.0 license are retained. Changes dated 2026-11-19.
 
-- The main dock has a single **New chapter** button. It opens a modal picker of the
+- The main dock has **New chapter** and a settings gear. The chapter button opens a modal picker of the
   default chapter type and custom presets. Select a type and click **Create chapter**
   (or double-click it). Cancel creates nothing.
+- **Ctrl+Alt+N** opens the same picker from an OBS frontend hotkey, configurable in
+  **Settings > Hotkeys > Open New chapter (Chapter Marker Manager)**. Press **1–9**
+  or **0** for the first ten displayed types, using the number row or numpad.
+  Each row shows its assigned number. Additional types remain selectable with
+  arrows and Enter. Escape cancels; holding a number does not repeatedly create markers.
 - Configure types at **Tools > Manage chapter types**. Existing presets and optional
   hotkeys still work. Configuration is at **Tools > Chapter Marker Manager settings**.
   The annotation dock is still available through OBS's Docks menu.
+- Chapter sidecar files (`.txt`, `.xml`, `.fcpxml`, `.edl`) are written into a
+  subfolder with the video's stem, next to the video. For `Videos/session.mp4`,
+  all chapter exports go in `Videos/session/`; the video stays at its original path.
+  Existing sidecars from older recordings are not moved automatically.
 - **Last chapter created:** remains visible, including after recording stops. Errors
   and other temporary messages use a separate label. History is kept until the next
   recording starts.
@@ -30,7 +39,7 @@ GPL-2.0 license are retained. Changes dated 2026-11-19.
 
 The fork's Push workflow builds a Windows x64 plugin ZIP using the upstream build
 scripts, and runs C++ regression checks for independent counters and native chapter
-log parsing. Download the Windows artifact from the successful GitHub Actions run.
+log parsing, export paths and the actual modal's keyboard events. Download the Windows artifact from the successful GitHub Actions run.
 It replaces the original plugin module; do not load both copies in one OBS process.
 
 Run the small Qt Core regression suite separately:

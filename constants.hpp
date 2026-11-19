@@ -47,6 +47,7 @@ namespace Constants {
 
 	// Hotkey names
 	constexpr const char *HOTKEY_ADD_DEFAULT_CHAPTER = "addDefaultChapterMarker";
+	constexpr const char *HOTKEY_OPEN_CHAPTER_PICKER = "openChapterPicker";
 
 	// Aitum Vertical integration
 	constexpr const char *AITUM_VERTICAL_PROC = "aitum_vertical_add_chapter";
