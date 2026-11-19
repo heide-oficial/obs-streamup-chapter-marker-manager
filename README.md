@@ -10,8 +10,8 @@ Chapter markers and annotations for your OBS recordings. If you're making conten
 
 There are a few ways to do it depending on how you work:
 
-- **Dock UI** - Type a name and hit save or just press Enter. Leave it blank and it'll use the default name.
-- **Hotkeys** - Set up a default chapter hotkey, or create preset hotkeys with specific names for things you mark often.
+- **Dock UI** - Click **New chapter** and select a type. The gear button opens settings.
+- **Keyboard** - Press **Ctrl+Alt+N**, then **1?9** or **0** for the first ten types. Number-row and numpad keys work. Change the opening shortcut in OBS Settings > Hotkeys. Existing default and preset hotkeys remain available.
 - **WebSocket** - Full WebSocket support so tools like Streamer.Bot can create markers on your behalf.
 - **Automatic** - Drops a chapter marker every time you switch scenes. You can set scenes to ignore so it doesn't go mental.
 
@@ -28,6 +28,8 @@ Your markers can go wherever your editing software needs them:
 - **Embedded in video** - Insert chapters directly into the recording file. Needs a compatible container like Hybrid MP4.
 
 Files get saved alongside your recording automatically.
+
+Chapter export files are grouped in a subfolder named after the video, next to the recording. For example, `session.mp4` has its TXT/XML/EDL files in `session/`.
 
 ## Annotations
 
