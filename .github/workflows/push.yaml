@@ -1,4 +1,4 @@
-﻿# Personal fork workflow, modified 2026-11-19; see FORK.md.
+# Personal fork workflow, modified 2026-11-19; see FORK.md.
 name: Push
 on:
   push:
@@ -7,12 +7,6 @@ on:
 permissions:
   contents: read
 jobs:
-  regression-tests:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y qt6-base-dev
-      - run: cmake -S tests -B build_tests && cmake --build build_tests && ctest --test-dir build_tests --output-on-failure
   windows-build:
     runs-on: windows-2022
     steps:
@@ -25,6 +19,19 @@ jobs:
         with:
           target: x64
           config: RelWithDebInfo
+      - name: Test counters, export paths and keyboard picker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $qtRoot = (Get-ChildItem .deps -Directory -Filter 'obs-deps-qt6-*' | Select-Object -First 1).FullName
+          if (-not $qtRoot) { throw 'The Qt SDK prepared by the plugin build is missing.' }
+          cmake -S tests -B build_tests -A x64 "-DCMAKE_PREFIX_PATH=$qtRoot"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build_tests --config Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:PATH = "$qtRoot/bin;$env:PATH"
+          ctest --test-dir build_tests -C Release --output-on-failure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Package Windows plugin
         uses: ./.github/actions/package-plugin
         with:
